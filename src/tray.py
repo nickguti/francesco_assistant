@@ -44,7 +44,6 @@ class TrayIconManager:
     def set_icon_by_state(self, state: str):
         import os
         from PyQt6.QtGui import QIcon, QPixmap
-        from PyQt6.QtCore import Qt
         
         # Mappatura corretta: listening = attesa wake word (idle)
         icon_map = {

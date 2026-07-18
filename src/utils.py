@@ -4,7 +4,6 @@ import urllib.request
 import winsound
 import shutil
 import logging
-from pathlib import Path
 from src.config import MODEL_DIR
 
 logger = logging.getLogger("OmniMindUtils")

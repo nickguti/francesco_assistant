@@ -249,8 +249,8 @@ def play_track_real_spotify(query: str) -> tuple[bool, str, str]:
                 return True, f"Riproduzione forzata su dispositivo '{device_name}': '{track_name}' di {artist_name}.", f"Riproduco {track_name} di {artist_name} su {device_name}."
             else:
                 return True, (
-                    f"Impossibile riprodurre: nessun dispositivo Spotify attivo rilevato.\n"
-                    f"Per favore, apri Spotify sul computer o telefono e riprova."
+                    "Impossibile riprodurre: nessun dispositivo Spotify attivo rilevato.\n"
+                    "Per favore, apri Spotify sul computer o telefono e riprova."
                 ), "Non ho trovato nessun dispositivo attivo su Spotify. Apri l'applicazione."
                 
     except Exception as e:
@@ -331,8 +331,8 @@ def set_screen_brightness(level: int):
     try:
         level = max(0, min(100, level))
         # Utilizza Get-CimInstance che è lo standard per i sistemi Windows recenti
-        cmd = f'powershell -Command "(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods).WmiSetBrightness(1, {level})"'
-        subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=2.0)
+        cmd = f"(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods).WmiSetBrightness(1, {level})"
+        subprocess.run(["powershell", "-Command", cmd], capture_output=True, text=True, timeout=2.0, creationflags=subprocess.CREATE_NO_WINDOW)
         logger.info(f"Luminosità dello schermo impostata al {level}%.")
     except Exception as e:
         logger.error(f"Errore nella regolazione della luminosità: {e}")
@@ -368,11 +368,11 @@ def send_background_key(window_title: str, key_code: int) -> bool:
         hwnd = win32gui.FindWindow(None, window_title)
         if not hwnd:
             # Cerca per corrispondenza parziale
-            def enum_windows_callback(h, l):
+            def enum_windows_callback(h, hwnds_list):
                 if win32gui.IsWindowVisible(h):
                     title = win32gui.GetWindowText(h)
                     if window_title.lower() in title.lower():
-                        l.append(h)
+                        hwnds_list.append(h)
                 return True
                 
             hwnds = []
@@ -1089,10 +1089,11 @@ def parse_local_command(text: str) -> tuple[bool, str, str]:
     if any(k in text_clean for k in ["come sta il pc", "prestazioni", "analisi di sistema", "status pc", "stato del sistema"]):
         return True, "system_diagnostics_trigger:", ""
         
-    kill_match = re.search(r'\b(?:chiudi il programma|termina il processo|chiudi|termina l\'app|killa)\s+(.+)', text_clean)
+    kill_match = re.search(r'\b(?:chiudi il programma|termina il processo|chiudi|termina l\'app|killa|forza chiusura|killami|termina)\s+(.+)', text_clean)
     if kill_match:
-        app_name = kill_match.group(1).strip()
-        if app_name and app_name not in ["", "tutto", "omnimind"]:
+        orig_match = re.search(r'\b(?:chiudi il programma|termina il processo|chiudi|termina l\'app|killa|forza chiusura|killami|termina)\s+(.+)', text, re.IGNORECASE)
+        app_name = orig_match.group(1).strip() if orig_match else kill_match.group(1).strip()
+        if app_name and app_name.lower() not in ["", "tutto", "omnimind"]:
             return True, f"process_kill_trigger:{app_name}", ""
         
     doc_match = re.search(r'\b(?:riassumi il documento|leggi questo file|riassumi il file|leggi il file)\s+(.+)', text_clean)
@@ -1220,12 +1221,6 @@ def parse_local_command(text: str) -> tuple[bool, str, str]:
         return search_local_file(query)
 
     # ----------------- 8. UTILITIES DI GIOCO (Fase 2) -----------------
-    kill_match = re.search(r'(?:chiudi|forza chiusura|killami|termina)\s+(.+)', text_clean)
-    if kill_match:
-        orig_match = re.search(r'(?:chiudi|forza chiusura|killami|termina)\s+(.+)', text, re.IGNORECASE)
-        app = orig_match.group(1).strip() if orig_match else kill_match.group(1).strip()
-        return kill_process_by_name(app)
-        
     launch_match = re.search(r'(?:avvia|apri lobby)\s+(.+)', text_clean)
     if launch_match:
         orig_match = re.search(r'(?:avvia|apri lobby)\s+(.+)', text, re.IGNORECASE)

@@ -1,7 +1,6 @@
 import sqlite3
 import logging
 import threading
-from pathlib import Path
 from src.config import BASE_DIR
 
 logger = logging.getLogger("OmniMindDatabase")
