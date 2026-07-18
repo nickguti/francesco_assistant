@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OmniMind — Dati sensibili e generati
+config.json
+.env
+omnimind_data.db
+omnimind_data.db-journal
+omnimind_data.db-wal
+omnimind_data.db-shm
+todo_list.json
+note_assistente.txt
+.cache
+
+# File audio temporanei
+temp/
+*.mp3
+
+# Modelli Vosk (scaricati a runtime)
+model/
+vosk-model-*/
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
