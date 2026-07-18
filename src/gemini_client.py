@@ -1,11 +1,9 @@
 import logging
-import io
 import os
 from pathlib import Path
-from PIL import Image, ImageGrab
-import pyautogui
+from PIL import ImageGrab
 import google.generativeai as genai
-from src.config import GEMINI_API_KEY, load_config
+from src.config import load_config
 
 logger = logging.getLogger("OmniMindGemini")
 
@@ -16,7 +14,8 @@ class GeminiClient:
     e applica le istruzioni di sistema per plasmare la personalità di OmniMind.
     """
     def __init__(self):
-        self.api_key = GEMINI_API_KEY
+        config = load_config()
+        self.api_key = config.get("gemini_api_key", "")
         self.model = None
         self.chat = None
         self.system_instruction = (

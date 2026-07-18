@@ -304,8 +304,6 @@ class OmniMindAssistant:
         
         # 3. Aggiorna la wake-word a runtime
         new_ww = config_data.get("wake_word", "omnimind")
-        import src.config as cfg
-        cfg.WAKE_WORD = new_ww.lower().strip()
         if self.wakeword_detector:
             self.wakeword_detector.update_wake_word(new_ww)
             

@@ -2,15 +2,20 @@ import logging
 import queue
 import math
 import sys
+import os
+import subprocess
+import time
+import winreg
+import shutil
 import markdown
 import psutil
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, 
     QPushButton, QTextEdit, QLineEdit, QSlider, QComboBox, QCheckBox, 
-    QScrollArea, QStackedWidget, QGridLayout, QSizePolicy, QProgressBar
+    QScrollArea, QStackedWidget, QGridLayout, QGroupBox
 )
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QRect, QPoint, QRectF
-from PyQt6.QtGui import QFont, QColor, QPainter, QPalette, QTextCursor, QTextCharFormat, QBrush, QPen
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QRectF
+from PyQt6.QtGui import QColor, QPainter, QTextCursor, QPen
 
 from src.config import load_config, save_config
 
@@ -348,7 +353,6 @@ class AssistantGUI(QMainWindow):
             self.on_stop_tts()
 
     def _build_settings_screen(self):
-        from PyQt6.QtWidgets import QGroupBox, QSlider, QCheckBox, QComboBox
         self.settings_screen = QScrollArea()
         self.settings_screen.setWidgetResizable(True)
         self.settings_screen.setFrameShape(QFrame.Shape.NoFrame)
@@ -493,7 +497,6 @@ class AssistantGUI(QMainWindow):
         self.settings_screen.setWidget(content)
 
     def _build_modes_screen(self):
-        from PyQt6.QtWidgets import QGroupBox, QSlider, QCheckBox, QComboBox, QLineEdit
         self.modes_screen = QScrollArea()
         self.modes_screen.setWidgetResizable(True)
         self.modes_screen.setFrameShape(QFrame.Shape.NoFrame)
@@ -654,8 +657,6 @@ class AssistantGUI(QMainWindow):
         self.std_bright_slider.valueChanged.connect(lambda v: self.std_bright_pct_label.setText(f"{v}%"))
 
     def _build_dashboard_screen(self):
-        from PyQt6.QtWidgets import QGroupBox, QGridLayout
-        import psutil
         
         self.dashboard_screen = QScrollArea()
         self.dashboard_screen.setWidgetResizable(True)
@@ -768,9 +769,6 @@ class AssistantGUI(QMainWindow):
         self.dashboard_timer.timeout.connect(self._update_dashboard_stats)
 
     def _update_dashboard_stats(self):
-        import time
-        import psutil
-        
         # Lettura CPU da WMI (Stesso identico valore di Task Manager)
         self.cpu_donut.setValue(self.wmi_cpu_usage)
         
@@ -1027,7 +1025,6 @@ class AssistantGUI(QMainWindow):
         self.tts_pitch_value_label.setText(f"{value:+d}Hz")
 
     def save_settings(self):
-        from src.config import save_config
         self.config_data["gemini_api_key"] = self.key_entry.text().strip()
         self.config_data["wake_word"] = self.wakeword_entry.text().strip().lower()
         self.config_data["tts_voice"] = self.voice_combo.currentText()
@@ -1056,7 +1053,6 @@ class AssistantGUI(QMainWindow):
         self.show_notification("Impostazioni salvate con successo.")
 
     def save_profile_settings(self):
-        from src.config import save_config
         self.config_data["focus_mute_tts"] = self.focus_mute_tts_check.isChecked()
         self.config_data["focus_close_apps"] = self.focus_close_apps_check.isChecked()
         self.config_data["focus_block_notifications"] = self.focus_block_notifications_check.isChecked()
@@ -1136,9 +1132,6 @@ class AssistantGUI(QMainWindow):
         self.on_toggle_mute()
 
     def restart_app(self):
-        import sys
-        import os
-        import subprocess
         # Spawna un nuovo processo indipendente clonato da questo
         subprocess.Popen([sys.executable] + sys.argv)
         # Uccide all'istante il processo attuale (compresi thread figli come PyAudio/Vosk)
@@ -1271,7 +1264,7 @@ class AssistantGUI(QMainWindow):
             QTimer.singleShot(10, self._process_typewriter_queue)
         else:
             if sender == "OmniMind":
-                self.chat_log.append(f"<b style='color:#10b981;'>OmniMind:</b> ")
+                self.chat_log.append("<b style='color:#10b981;'>OmniMind:</b> ")
             else:
                 self.chat_log.append(f"<b style='color:#10b981;'>{sender}:</b> ")
             self._typewriter_insert(text + "\n", 0)
@@ -1324,7 +1317,6 @@ class AssistantGUI(QMainWindow):
         NotificationOverlay(self, text, 3)
 
     def _toggle_windows_startup(self, enable):
-        import winreg, os, sys
         key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
         app_name = "OmniMind"
         try:
@@ -1343,7 +1335,6 @@ class AssistantGUI(QMainWindow):
             print(f"Errore Auto-Start: {e}")
 
     def clear_assistant_cache(self):
-        import shutil, os
         from src.config import TEMP_DIR
         try:
             if TEMP_DIR.exists():

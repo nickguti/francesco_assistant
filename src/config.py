@@ -146,28 +146,4 @@ def get_setting(key: str, default=None):
     config = load_config()
     return config.get(key, default)
 
-# Configurazione iniziale a caricamento immediato (retrocompatibilita')
-_current_config = load_config()
 
-GEMINI_API_KEY = _current_config["gemini_api_key"]
-WAKE_WORD = _current_config["wake_word"]
-TTS_VOICE = _current_config["tts_voice"]
-VOLUME = _current_config["volume"]
-ELEVENLABS_API_KEY = _current_config["elevenlabs_api_key"]
-ELEVENLABS_VOICE_ID = _current_config["elevenlabs_voice_id"]
-SPOTIFY_CLIENT_ID = _current_config["spotify_client_id"]
-SPOTIFY_CLIENT_SECRET = _current_config["spotify_client_secret"]
-SPOTIFY_REDIRECT_URI = _current_config["spotify_redirect_uri"]
-FOCUS_MODE_ACTIVE = _current_config.get("focus_mode_active", False)
-FOCUS_MUTE_TTS = _current_config.get("focus_mute_tts", True)
-FOCUS_CLOSE_APPS = _current_config.get("focus_close_apps", True)
-FOCUS_BLOCK_NOTIFICATIONS = _current_config.get("focus_block_notifications", False)
-ACTIVE_PROFILE = _current_config.get("active_profile", "Nessuno")
-GAMING_VOLUME = _current_config.get("gaming_volume", 0.30)
-GAMING_OPEN_LAUNCHERS = _current_config.get("gaming_open_launchers", True)
-GAMING_OPTIMIZE_RAM = _current_config.get("gaming_optimize_ram", True)
-ALARM_VOLUME = _current_config.get("alarm_volume", 0.50)
-STD_BRIGHTNESS = _current_config.get("std_brightness", 80)
-NIGHT_VOLUME = _current_config.get("night_volume", 0.15)
-NIGHT_BRIGHTNESS = _current_config.get("night_brightness", 15)
-START_MINIMIZED = _current_config.get("start_minimized", False)

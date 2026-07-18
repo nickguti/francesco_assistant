@@ -164,7 +164,16 @@ class TimeManager:
             triggered_alarms = []
             with self.lock:
                 for a in self.alarms:
-                    if not a["triggered"] and a["time_str"] == current_time_str:
+                    try:
+                        h, m = map(int, a["time_str"].split(':'))
+                        alarm_minutes = h * 60 + m
+                    except Exception:
+                        continue
+                        
+                    now_minutes = now_dt.hour * 60 + now_dt.minute
+                    diff = (now_minutes - alarm_minutes) % 1440
+                    
+                    if not a["triggered"] and diff <= 5:
                         a["triggered"] = True
                         triggered_alarms.append(a)
                         
