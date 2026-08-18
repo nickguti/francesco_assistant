@@ -30,12 +30,12 @@ TODO_FILE = BASE_DIR / "todo_list.json"
 def get_system_snapshot() -> dict:
     data = {}
     import psutil, subprocess
-    
+
     data["cpu_percent"] = psutil.cpu_percent(interval=0.5)
     ram = psutil.virtual_memory()
     data["ram_percent"] = ram.percent
     data["ram_used_gb"] = round(ram.used / (1024**3), 2)
-    
+
     # Lettura silente NVIDIA-SMI
     try:
         smi = subprocess.check_output(
@@ -48,14 +48,14 @@ def get_system_snapshot() -> dict:
             data["gpu_temp_c"] = temp
             data["gpu_vram_used_mb"] = mem_used
     except Exception: pass
-    
+
     procs = []
     for p in psutil.process_iter(['name', 'memory_percent']):
         try: procs.append(p.info)
         except Exception: pass
     procs.sort(key=lambda x: x.get('memory_percent', 0) or 0, reverse=True)
     data["top_ram_processes"] = procs[:5]
-    
+
     return data
 
 # Mappa per lanciare i giochi tramite i protocolli nativi di Steam, Battle.net e Riot Client
@@ -168,7 +168,7 @@ def apri_app_locale(app_name: str) -> bool:
         "blocco note": "notepad",
         "paint": "mspaint"
     }
-    
+
     app_clean = app_name.lower().strip()
     if app_clean in APP_PROTOCOLS:
         cmd = APP_PROTOCOLS[app_clean]
@@ -185,7 +185,7 @@ def apri_app_locale(app_name: str) -> bool:
             logger.warning(f"File non trovato per l'eseguibile registrato: {cmd}")
         except Exception as e:
             logger.error(f"Errore nel lanciare '{app_name}' tramite mappatura locale: {e}")
-            
+
     try:
         clean_name = app_clean.replace(" ", "")
         subprocess.Popen([clean_name])
@@ -195,7 +195,7 @@ def apri_app_locale(app_name: str) -> bool:
         logger.debug(f"Eseguibile '{app_clean}' non trovato nel PATH di Windows.")
     except Exception as e:
         logger.debug(f"Impossibile avviare '{app_clean}': {e}")
-        
+
     return False
 
 def play_track_real_spotify(query: str) -> tuple[bool, str, str]:
@@ -204,17 +204,17 @@ def play_track_real_spotify(query: str) -> tuple[bool, str, str]:
     sp_id = config.get("spotify_client_id", "").strip()
     sp_secret = config.get("spotify_client_secret", "").strip()
     sp_redirect = config.get("spotify_redirect_uri", "").strip()
-    
+
     if not (sp_id and sp_secret and sp_redirect):
         return False, "", ""
-        
+
     try:
         import spotipy
         from spotipy.oauth2 import SpotifyOAuth
-        
+
         logger.info("Inizializzazione Spotipy OAuth...")
         scope = "user-modify-playback-state user-read-playback-state"
-        
+
         auth_manager = SpotifyOAuth(
             client_id=sp_id,
             client_secret=sp_secret,
@@ -222,20 +222,20 @@ def play_track_real_spotify(query: str) -> tuple[bool, str, str]:
             scope=scope,
             open_browser=True
         )
-        
+
         sp = spotipy.Spotify(auth_manager=auth_manager)
         logger.info(f"Ricerca traccia su Spotify per: {query}")
         results = sp.search(q=query, type='track', limit=1)
         tracks = results.get('tracks', {}).get('items', [])
-        
+
         if not tracks:
             return True, f"Nessun brano trovato su Spotify per: '{query}'", "Non ho trovato questa canzone su Spotify."
-            
+
         track = tracks[0]
         track_uri = track['uri']
         track_name = track['name']
         artist_name = track['artists'][0]['name']
-        
+
         try:
             sp.start_playback(uris=[track_uri])
             return True, f"Riproduzione avviata: '{track_name}' di {artist_name} su Spotify (API).", f"Riproduco {track_name} di {artist_name}."
@@ -252,7 +252,7 @@ def play_track_real_spotify(query: str) -> tuple[bool, str, str]:
                     "Impossibile riprodurre: nessun dispositivo Spotify attivo rilevato.\n"
                     "Per favore, apri Spotify sul computer o telefono e riprova."
                 ), "Non ho trovato nessun dispositivo attivo su Spotify. Apri l'applicazione."
-                
+
     except Exception as e:
         logger.error(f"Errore durante l'uso delle API di Spotify: {e}")
         return True, f"Errore API Spotify: {e}\nAssicurati che ID, Secret e Redirect URI siano corretti nelle impostazioni.", "Errore di connessione con le API di Spotify."
@@ -276,10 +276,10 @@ def adjust_volume(change_percent: int) -> tuple[bool, str, str]:
         current_percent = current_scalar * 100.0
         new_percent = current_percent + change_percent
         new_percent = max(0.0, min(100.0, new_percent))
-        
+
         volume.SetMute(0, None)
         volume.SetMasterVolumeLevelScalar(new_percent / 100.0, None)
-        
+
         direction = "alzato" if change_percent > 0 else "abbassato"
         chat_msg = f"Volume {direction} del {abs(change_percent)}%. Livello attuale: {int(new_percent)}%."
         voice_msg = f"Ho {direction} il volume. Ora è al {int(new_percent)} percento."
@@ -293,10 +293,10 @@ def set_volume(target_percent: int) -> tuple[bool, str, str]:
     try:
         volume = AudioUtilities.GetSpeakers().EndpointVolume
         target_percent = max(0.0, min(100.0, target_percent))
-        
+
         volume.SetMute(0, None)
         volume.SetMasterVolumeLevelScalar(target_percent / 100.0, None)
-        
+
         chat_msg = f"Volume di sistema impostato al {target_percent}%."
         voice_msg = f"Volume impostato al {target_percent} percento."
         return True, chat_msg, voice_msg
@@ -317,7 +317,10 @@ def mute_system_volume() -> tuple[bool, str, str]:
 def empty_recycle_bin() -> tuple[bool, str, str]:
     """Svuota il Cestino di Windows in background."""
     try:
-        result = ctypes.windll.shell32.SHEmptyRecycleBinW(None, None, 7)
+        # dwFlags = 6 (NOPROGRESSUI | NOSOUND): la conferma nativa di Windows
+        # resta attiva. Con 7 era incluso anche NOCONFIRMATION, quindi una
+        # singola frase captata dal microfono cancellava tutto senza avviso.
+        result = ctypes.windll.shell32.SHEmptyRecycleBinW(None, None, 6)
         if result == 0:
             return True, "Cestino di Windows svuotato con successo.", "Ho svuotato il cestino."
         else:
@@ -343,13 +346,13 @@ def trigger_discord_call() -> tuple[bool, str, str]:
         from pynput.keyboard import Key, Controller
         import time
         keyboard = Controller()
-        
+
         # Simula la combinazione ctrl+shift+alt+j
         with keyboard.pressed(Key.ctrl), keyboard.pressed(Key.shift), keyboard.pressed(Key.alt):
             keyboard.press('j')
             time.sleep(0.02)
             keyboard.release('j')
-            
+
         return True, "Eseguo: Connessione al canale Discord...", "Connessione Discord inviata."
     except Exception as e:
         logger.error(f"Errore nella simulazione della macro Discord: {e}")
@@ -364,7 +367,7 @@ def send_background_key(window_title: str, key_code: int) -> bool:
         import win32gui
         import win32con
         import time
-        
+
         hwnd = win32gui.FindWindow(None, window_title)
         if not hwnd:
             # Cerca per corrispondenza parziale
@@ -374,19 +377,19 @@ def send_background_key(window_title: str, key_code: int) -> bool:
                     if window_title.lower() in title.lower():
                         hwnds_list.append(h)
                 return True
-                
+
             hwnds = []
             win32gui.EnumWindows(enum_windows_callback, hwnds)
             if hwnds:
                 hwnd = hwnds[0]
-                
+
         if hwnd:
             logger.info(f"Invio tasto {key_code} alla finestra '{win32gui.GetWindowText(hwnd)}' (hwnd: {hwnd}) in background.")
             win32gui.PostMessage(hwnd, win32con.WM_KEYDOWN, key_code, 0)
             time.sleep(0.02)
             win32gui.PostMessage(hwnd, win32con.WM_KEYUP, key_code, 0)
             return True
-            
+
         logger.warning(f"Finestra con titolo '{window_title}' non trovata per invio tasto in background.")
         return False
     except Exception as e:
@@ -397,23 +400,23 @@ def attiva_profilo(nome_profilo: str) -> tuple[bool, str, str]:
     """Attiva un profilo di automazione (Focus, Gaming o Notte) configurando a runtime i parametri associati."""
     config = load_config()
     nome_clean = nome_profilo.lower().strip()
-    
+
     if "gaming" in nome_clean:
         config["active_profile"] = "Gaming"
         config["focus_mode_active"] = False
         save_config(config)
-        
+
         # Imposta il volume master al volume gaming (40% o quello dello slider)
         gaming_vol_val = config.get("gaming_volume", 0.40)
         gaming_vol_pct = int(gaming_vol_val * 100)
         set_volume(gaming_vol_pct)
-        
+
         ram_report = ""
         if config.get("gaming_optimize_ram", True):
             gc.collect()
             ram = psutil.virtual_memory()
             ram_report = f"Memoria RAM ottimizzata (Uso attuale: {ram.percent}%)."
-        
+
         launchers = []
         if config.get("gaming_open_launchers", True):
             try:
@@ -426,7 +429,7 @@ def attiva_profilo(nome_profilo: str) -> tuple[bool, str, str]:
                 launchers.append("Battle.net")
             except Exception:
                 pass
-                
+
         # --- Advanced Gaming Features ---
         if config.get("gaming_high_performance", True):
             try:
@@ -436,7 +439,7 @@ def attiva_profilo(nome_profilo: str) -> tuple[bool, str, str]:
                 chat_msg_power = ""
         else:
             chat_msg_power = ""
-            
+
         closed_browsers = 0
         if config.get("gaming_kill_browsers", False):
             target_browsers = ["chrome.exe", "msedge.exe", "firefox.exe", "opera.exe"]
@@ -448,7 +451,7 @@ def attiva_profilo(nome_profilo: str) -> tuple[bool, str, str]:
                 except Exception:
                     pass
         # ---------------------------------
-        
+
         chat_msg = f"🎮 **Profilo Gaming Attivato**\n- Volume master impostato al {gaming_vol_pct}%\n- Comportamento Gemini: Sintetico/Essenziale\n- {ram_report}"
         if chat_msg_power:
             chat_msg += f"\n{chat_msg_power}"
@@ -456,15 +459,15 @@ def attiva_profilo(nome_profilo: str) -> tuple[bool, str, str]:
             chat_msg += f"\n- Browser forzatamente chiusi: {closed_browsers}"
         if launchers:
             chat_msg += f"\n- Launcher avviati: {', '.join(launchers)}"
-            
+
         voice_msg = f"Profilo Gaming attivato. Ho impostato il volume al {gaming_vol_pct} percento ed attivato la modalità sintetica."
         return True, chat_msg, voice_msg
-        
+
     elif "focus" in nome_clean or "studio" in nome_clean:
         config["active_profile"] = "Focus"
         config["focus_mode_active"] = True
         save_config(config)
-        
+
         closed = []
         if config.get("focus_close_apps", True):
             DISTRACTING_APPS = ["discord.exe", "steam.exe", "battle.net.exe", "battlenet.exe", "epicgameslauncher.exe"]
@@ -476,11 +479,11 @@ def attiva_profilo(nome_profilo: str) -> tuple[bool, str, str]:
                         closed.append(name)
                 except Exception:
                     pass
-                    
+
         chat_msg = "🎯 **Profilo Focus / Studio Attivato**\n- Risposte vocali (TTS) disattivate\n- Notifiche silenziate"
         if closed:
             chat_msg += f"\n- App distractive chiuse: {', '.join(set(closed))}"
-            
+
         # --- Advanced Focus Features ---
         if config.get("focus_pomodoro", False):
             def pomodoro_thread():
@@ -495,7 +498,7 @@ def attiva_profilo(nome_profilo: str) -> tuple[bool, str, str]:
                     pass
             threading.Thread(target=pomodoro_thread, daemon=True).start()
             chat_msg += "\n- Timer Pomodoro (25m) avviato"
-            
+
         if config.get("focus_lofi", False):
             import webbrowser
             try:
@@ -504,7 +507,7 @@ def attiva_profilo(nome_profilo: str) -> tuple[bool, str, str]:
             except Exception:
                 pass
         # -------------------------------
-            
+
         voice_msg = "Profilo Focus attivato. Da questo momento sarò silenzioso per non disturbare lo studio."
         return True, chat_msg, voice_msg
 
@@ -512,16 +515,16 @@ def attiva_profilo(nome_profilo: str) -> tuple[bool, str, str]:
         config["active_profile"] = "Notte"
         config["focus_mode_active"] = False
         save_config(config)
-        
+
         # Imposta luminosità e volume per la notte
         night_vol = int(float(config.get("night_volume", 0.15)) * 100)
         night_bright = int(config.get("night_brightness", 15))
-        
+
         set_volume(night_vol)
         set_screen_brightness(night_bright)
-        
+
         chat_msg = f"🌙 **Profilo Notte / Relax Attivato**\n- Luminosità dello schermo ridotta al {night_bright}%\n- Volume master ridotto al {night_vol}%\n- Risposte di Gemini calme e pacate"
-        
+
         # --- Advanced Night Features ---
         sleep_timer = config.get("night_sleep_timer", "Mai")
         if sleep_timer != "Mai":
@@ -533,7 +536,7 @@ def attiva_profilo(nome_profilo: str) -> tuple[bool, str, str]:
                     chat_msg += f"\n- Autospegnimento programmato tra {sleep_timer.split()[0]} minuti"
             except Exception:
                 pass
-                
+
         if config.get("night_blue_light", True):
             try:
                 ps_script = 'Set-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\CloudStore\\Store\\DefaultAccount\\Current\\default$windows.data.bluelightreduction.bluelightreductionstate\\windows.data.bluelightreduction.bluelightreductionstate" -Name "Data" -Value ([byte[]](0x02,0x00,0x00,0x00,0x54,0x83,0x08,0x4a,0x03,0xba,0xd2,0x01,0x00,0x00,0x00,0x00,0x43,0x42,0x01,0x00,0x10,0x00,0xd0,0x0a,0x02,0xc6,0x14,0xb8,0x8e,0x9d,0xd0,0xb4,0xc0,0xae,0xe9,0x01,0x00))'
@@ -545,7 +548,7 @@ def attiva_profilo(nome_profilo: str) -> tuple[bool, str, str]:
 
         voice_msg = "Profilo Notte attivato. Ho ridotto la luminosità e il volume per il tuo relax. Riposati pure."
         return True, chat_msg, voice_msg
-        
+
     return True, f"Profilo '{nome_profilo}' non riconosciuto.", f"Non conosco il profilo {nome_profilo}."
 
 def disattiva_profili() -> tuple[bool, str, str]:
@@ -554,28 +557,28 @@ def disattiva_profili() -> tuple[bool, str, str]:
     config["active_profile"] = "Nessuno"
     config["focus_mode_active"] = False
     save_config(config)
-    
+
     # Ripristina volume e luminosità standard
     std_vol = int(float(config.get("volume", 0.55)) * 100)
     std_bright = int(config.get("std_brightness", 80))
-    
+
     set_volume(std_vol)
     set_screen_brightness(std_bright)
-    
+
     chat_msg = f"🌿 **Profilo Standard Ripristinato**\n- Volume master ripristinato al {std_vol}%\n- Luminosità ripristinata al {std_bright}%\n- Risposte di Gemini standard"
-    
+
     # --- Reset Advanced Features ---
     try:
         subprocess.run("shutdown /a", shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
     except Exception:
         pass
-        
+
     try:
         subprocess.run("powercfg /S SCHEME_BALANCED", shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
     except Exception:
         pass
     # -------------------------------
-    
+
     voice_msg = "Profili disattivati. Ho ripristinato i valori standard di luminosità e volume."
     return True, chat_msg, voice_msg
 
@@ -583,7 +586,7 @@ def kill_process_by_name(app_name: str) -> tuple[bool, str, str]:
     """Cerca e termina forzatamente i processi associati al nome fornito."""
     app_clean = app_name.lower().strip()
     target = app_clean if app_clean.endswith(".exe") else app_clean + ".exe"
-    
+
     terminated = 0
     for proc in psutil.process_iter(['name', 'pid']):
         try:
@@ -593,7 +596,7 @@ def kill_process_by_name(app_name: str) -> tuple[bool, str, str]:
                 terminated += 1
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
-            
+
     if terminated > 0:
         return True, f"Kill Switch: terminati {terminated} processi associati a '{app_name}'.", f"Ho terminato tutti i processi di {app_name}."
     else:
@@ -602,7 +605,7 @@ def kill_process_by_name(app_name: str) -> tuple[bool, str, str]:
 def launch_game_lobby(game_name: str) -> tuple[bool, str, str]:
     """Avvia le lobby di gioco sfruttando i protocolli di integrazione nativi."""
     game_clean = game_name.lower().strip()
-    
+
     if game_clean in GAMES_MAP:
         uri = GAMES_MAP[game_clean]
         try:
@@ -611,7 +614,7 @@ def launch_game_lobby(game_name: str) -> tuple[bool, str, str]:
         except Exception as e:
             logger.error(f"Errore lancio {game_name}: {e}")
             return True, f"Errore nell'aprire la lobby di '{game_name}': {e}", f"Non sono riuscito ad avviare {game_name}."
-            
+
     if "steam" in game_clean:
         try:
             os.startfile("steam://")
@@ -630,16 +633,16 @@ def launch_game_lobby(game_name: str) -> tuple[bool, str, str]:
             return True, "Apertura di Epic Games Launcher.", "Apro Epic Games."
         except Exception:
             pass
-            
+
     if apri_app_locale(game_clean):
         return True, f"Avviato eseguibile per il gioco locale: '{game_name}'.", f"Apro {game_name}."
-        
+
     return False, "", ""
 
 def check_server_status(game_name: str) -> tuple[bool, str, str]:
     """Controlla lo stato dei server di gioco inviando richieste di rete di test."""
     name_clean = game_name.lower().strip()
-    
+
     target_url = None
     display_name = game_name.title()
     for key, url in SERVER_URLS.items():
@@ -647,10 +650,10 @@ def check_server_status(game_name: str) -> tuple[bool, str, str]:
             target_url = url
             display_name = key.title()
             break
-            
+
     if not target_url:
         target_url = "https://www.google.com"
-        
+
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.head(target_url, headers=headers, timeout=3.0)
@@ -668,7 +671,7 @@ def organize_downloads() -> tuple[bool, str, str]:
         downloads_path = Path(os.environ["USERPROFILE"]) / "Downloads"
         if not downloads_path.exists():
             return True, "Cartella Download non trovata nel profilo utente.", "La cartella dei download non esiste."
-            
+
         CATEGORIES = {
             "Installers": [".exe", ".msi", ".bat", ".cmd"],
             "Immagini": [".jpg", ".jpeg", ".png", ".gif", ".svg", ".bmp", ".webp", ".ico"],
@@ -677,40 +680,40 @@ def organize_downloads() -> tuple[bool, str, str]:
             "Audio": [".mp3", ".wav", ".flac", ".ogg", ".m4a"],
             "Video": [".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv"]
         }
-        
+
         moved_counts = {}
         total_moved = 0
-        
+
         for item in downloads_path.iterdir():
             if item.is_file():
                 ext = item.suffix.lower()
                 target_folder = None
-                
+
                 for folder, extensions in CATEGORIES.items():
                     if ext in extensions:
                         target_folder = folder
                         break
-                        
+
                 if target_folder:
                     dest_dir = downloads_path / target_folder
                     dest_dir.mkdir(exist_ok=True)
-                    
+
                     dest_path = dest_dir / item.name
                     counter = 1
                     while dest_path.exists():
                         dest_path = dest_dir / f"{item.stem}_{counter}{ext}"
                         counter += 1
-                        
+
                     shutil.move(str(item), str(dest_path))
                     moved_counts[target_folder] = moved_counts.get(target_folder, 0) + 1
                     total_moved += 1
-                    
+
         if total_moved > 0:
             summary_str = ", ".join([f"{val} in {key}" for key, val in moved_counts.items()])
             return True, f"Organizzazione completata. Spostati {total_moved} file:\n{summary_str}", f"Ho riordinato i file nei download, spostandone in totale {total_moved}."
         else:
             return True, "La cartella Download è già ordinata, nessun file da spostare.", "La cartella download è già in ordine."
-            
+
     except Exception as e:
         logger.error(f"Errore organizzatore download: {e}")
         return True, f"Errore nell'organizzare la cartella download: {e}", "Non sono riuscito ad organizzare i download."
@@ -723,10 +726,10 @@ def search_local_file(file_query: str) -> tuple[bool, str, str]:
         Path(os.environ["USERPROFILE"]) / "Documents",
         Path(os.environ["USERPROFILE"]) / "Downloads"
     ]
-    
+
     results = []
     max_results = 5
-    
+
     for base_dir in search_dirs:
         if not base_dir.exists():
             continue
@@ -740,18 +743,18 @@ def search_local_file(file_query: str) -> tuple[bool, str, str]:
                         continue
                 except ValueError:
                     continue
-                    
+
                 if path.is_file() and file_query in path.name.lower():
                     results.append(path)
         except Exception:
             pass
-            
+
     if results:
         chat_lines = []
         for p in results:
             uri = p.absolute().as_uri()
             chat_lines.append(f"- [{p.name}]({uri}) in `{p.parent}`")
-        
+
         chat_resp = "Ho individuato i seguenti file:\n" + "\n".join(chat_lines)
         voice_resp = f"Ho trovato {len(results)} file corrispondenti."
         return True, chat_resp, voice_resp
@@ -764,29 +767,29 @@ def extract_latest_download() -> tuple[bool, str, str]:
         downloads_path = Path(os.environ["USERPROFILE"]) / "Downloads"
         if not downloads_path.exists():
             return True, "Cartella Download non trovata.", "La cartella download non esiste."
-            
+
         archives = []
         for item in downloads_path.iterdir():
             if item.is_file() and item.suffix.lower() == ".zip":
                 archives.append((item, item.stat().st_mtime))
-                
+
         if not archives:
             return True, "Nessun file ZIP trovato nella cartella Download.", "Non ho trovato nessun file zip recente da estrarre."
-            
+
         archives.sort(key=lambda x: x[1], reverse=True)
         latest_archive, _ = archives[0]
-        
+
         dest_dir = downloads_path / latest_archive.stem
         counter = 1
         while dest_dir.exists():
             dest_dir = downloads_path / f"{latest_archive.stem}_{counter}"
             counter += 1
-            
+
         dest_dir.mkdir(exist_ok=True)
-        
+
         with zipfile.ZipFile(latest_archive, 'r') as zip_ref:
             zip_ref.extractall(dest_dir)
-            
+
         return True, f"Estratto l'archivio `{latest_archive.name}` nella cartella:\n`{dest_dir}`", f"Ho estratto {latest_archive.name} in una cartella dedicata."
     except Exception as e:
         logger.error(f"Errore estrazione ZIP: {e}")
@@ -815,22 +818,22 @@ def get_system_resources_status() -> tuple[bool, str, str]:
     ram = psutil.virtual_memory()
     ram_used = ram.used / (1024**3)
     ram_percent = ram.percent
-    
+
     gpu_util, gpu_temp = get_gpu_status()
-    
+
     chat_lines = [
         "📊 **Diagnostica Hardware del Sistema**:",
         f"- **CPU:** {cpu_percent}% di carico di lavoro",
         f"- **RAM:** {ram_percent}% ({ram_used:.1f} GB utilizzati su {ram.total / (1024**3):.1f} GB)"
     ]
-    
+
     voice_msg = f"Stai consumando il {int(cpu_percent)} percento della CPU e {ram_used:.1f} Gigabyte di RAM."
-    
+
     if gpu_util is not None:
         chat_lines.append(f"- **GPU:** {gpu_util}% di carico")
         chat_lines.append(f"- **Temperatura GPU:** {gpu_temp}°C")
         voice_msg += f" La tua scheda video lavora al {gpu_util}% con una temperatura di {gpu_temp} gradi."
-        
+
     chat_resp = "\n".join(chat_lines)
     return True, chat_resp, voice_msg
 
@@ -841,12 +844,12 @@ def get_ip_addresses() -> tuple[bool, str, str]:
         local_ip = socket.gethostbyname(hostname)
     except Exception:
         local_ip = "Rilevamento locale fallito"
-        
+
     try:
         public_ip = requests.get("https://api.ipify.org", timeout=2.0).text.strip()
     except Exception:
         public_ip = "Non rilevato (Offline)"
-        
+
     chat_msg = f"🌐 **Configurazione Indirizzi IP**:\n- **IP Locale:** `{local_ip}`\n- **IP Pubblico:** `{public_ip}`"
     voice_msg = f"Il tuo indirizzo IP locale è {local_ip}."
     return True, chat_msg, voice_msg
@@ -857,7 +860,7 @@ def check_port_status(port: int) -> tuple[bool, str, str]:
     s.settimeout(0.8)
     result = s.connect_ex(("127.0.0.1", port))
     s.close()
-    
+
     if result == 0:
         return True, f"Diagnostica di rete: la porta `{port}` su localhost (127.0.0.1) è **APERTA** (in ascolto).", f"La porta {port} è aperta."
     else:
@@ -906,9 +909,9 @@ def remove_todo_task(query: str) -> str:
     tasks = load_todo()
     if not tasks:
         return "Nessuna attività registrata nella lista."
-        
+
     query_clean = query.strip()
-    
+
     # 1. Rimuove per Indice Numerico (1-based)
     if query_clean.isdigit():
         idx = int(query_clean) - 1
@@ -918,26 +921,26 @@ def remove_todo_task(query: str) -> str:
             return f"Rimossa attività #{idx+1}: **{removed['task']}**."
         else:
             return f"Errore: numero attività #{query_clean} fuori dal range (totale elementi: {len(tasks)})."
-            
+
     # 2. Rimuove per corrispondenza di testo parziale
     for t in tasks:
         if query_clean.lower() in t["task"].lower():
             tasks.remove(t)
             save_todo(tasks)
             return f"Rimossa attività corrispondente: **{t['task']}**."
-            
+
     return f"Nessun elemento corrispondente a '{query_clean}' trovato nella To-Do list."
 
 def check_weather(city: str, tomorrow: bool = False) -> tuple[bool, str, str]:
     """Recupera le condizioni meteo da wttr.in per la città specificata."""
     city_encoded = urllib.parse.quote(city.strip())
     url = f"https://wttr.in/{city_encoded}?format=j1"
-    
+
     try:
         res = requests.get(url, timeout=4.0)
         if res.status_code != 200:
             return True, f"Impossibile trovare dettagli meteo per '{city}'.", "Non ho trovato dati meteo per questa città."
-            
+
         data = res.json()
         current = data['current_condition'][0]
         temp = current['temp_C']
@@ -946,16 +949,16 @@ def check_weather(city: str, tomorrow: bool = False) -> tuple[bool, str, str]:
         wind = current['windspeedKmph']
         desc = current['weatherDesc'][0]['value']
         desc_it = translate_condition(desc)
-        
+
         area_name = data['nearest_area'][0]['areaName'][0]['value'].title()
-        
+
         if tomorrow:
             day_data = data['weather'][1]
             max_temp = day_data['maxtempC']
             min_temp = day_data['mintempC']
             tom_desc = day_data['hourly'][4]['weatherDesc'][0]['value']
             tom_desc_it = translate_condition(tom_desc)
-            
+
             chat_msg = (
                 f"📅 **Meteo di Domani a {area_name}**:\n"
                 f"- **Previsione:** {tom_desc_it.title()}\n"
@@ -972,7 +975,7 @@ def check_weather(city: str, tomorrow: bool = False) -> tuple[bool, str, str]:
                 f"- **Vento:** {wind} km/h"
             )
             voice_msg = f"Attualmente a {area_name} c'è {desc_it} con {temp} gradi. La temperatura percepita è di {feels} gradi."
-            
+
         return True, chat_msg, voice_msg
     except Exception as e:
         logger.error(f"Errore WTTR API: {e}")
@@ -982,21 +985,21 @@ def get_tech_news() -> tuple[bool, str, str]:
     """Legge i feed RSS tecnologici di ANSA ed estrae le prime 3 notizie principali."""
     import feedparser
     url = "https://www.ansa.it/sito/notizie/tecnologia/tecnologia_rss.xml"
-    
+
     try:
         feed = feedparser.parse(url)
         if not feed.entries:
             return True, "Nessuna notizia rilevata nei Feed RSS.", "Non ci sono notizie tech disponibili."
-            
+
         chat_lines = ["📰 **Notizie Tecnologiche della Giornata (ANSA)**:\n"]
         voice_titles = []
-        
+
         for idx, entry in enumerate(feed.entries[:3], 1):
             title = entry.title
             link = entry.link
             chat_lines.append(f"{idx}. **[{title}]({link})**")
             voice_titles.append(title)
-            
+
         chat_msg = "\n".join(chat_lines)
         voice_msg = f"Ecco le ultime notizie tecnologiche da ANSA. Primo: {voice_titles[0]}. Secondo: {voice_titles[1]}. Terzo: {voice_titles[2]}."
         return True, chat_msg, voice_msg

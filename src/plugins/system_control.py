@@ -11,19 +11,47 @@ from src.commands import (
     generate_secure_password
 )
 import pyperclip
+from src import safety
 
 logger = logging.getLogger("PluginSystemControl")
+
+# Ancorato a inizio frase e con target vincolato: le parole nude "chiudi" e
+# "termina" seguite da (.+) dirottavano frasi normali ("quando termina il
+# film?") sulla terminazione forzata dei processi.
+_KILL_RE = re.compile(
+    r"^(?:chiudi(?: il programma)?|termina(?: il processo| l'app)?|killa|killami|forza chiusura)\s+([\w .\-]{2,40})$",
+    re.IGNORECASE,
+)
+# Il ramo "prendi nota" era implementato in execute() ma non aveva alcun
+# trigger in can_handle(), quindi non era raggiungibile da nessun input.
+_NOTA_RE = re.compile(
+    r"^(?:prendi nota[:\s]|prendi nota che\s|scrivi negli appunti[:\s])\s*(.+)",
+    re.IGNORECASE,
+)
 
 class SystemControlPlugin(OmniMindPlugin):
     """
     Gestisce controlli di sistema, hardware, rete, file e alimentazione.
     """
+    name = "Controllo Sistema"
+    description = "Gestisce azioni core come blocco/spegnimento PC, profili audio e luminosità, e monitoraggio delle risorse hardware."
+    priority = 50
+    examples = [
+        ("blocca il pc", "Blocca la sessione di Windows"),
+        ("stato hardware", "Diagnostica di CPU, RAM e GPU"),
+        ("imposta il volume a 30", "Regola il volume master"),
+        ("attiva profilo gaming", "Applica un profilo di sistema"),
+        ("chiudi chrome", "Termina i processi di un programma"),
+        ("prendi nota: comprare il latte", "Salva una nota su file"),
+    ]
+
     def can_handle(self, text_clean: str, text: str) -> bool:
         triggers = [
             "blocca il pc", "blocca il computer", "chiudi a chiave",
             "mostra il desktop", "abbassa le finestre", "nascondi tutto",
             "svuota il cestino", "butta l'immondizia", "pulisci il cestino", "svuota cestino",
-            "come sta il pc", "prestazioni", "analisi di sistema", "status pc", "stato del sistema",
+            "come sta il pc", "analisi di sistema", "status pc", "stato del sistema",
+            "prestazioni del pc", "prestazioni del sistema", "prestazioni hardware",
             "ripristina profilo standard", "ripristina standard", "ripristina modalità standard",
             "quanta ram sto usando", "stato cpu", "temperatura hardware", "risorse di sistema", "stato hardware", "consumo risorse",
             "qual è il mio ip", "mio ip", "ip pubblico", "ip locale",
@@ -39,8 +67,9 @@ class SystemControlPlugin(OmniMindPlugin):
         if any(k in text_clean for k in triggers):
             return True
             
-        if re.search(r'\b(?:chiudi il programma|termina il processo|chiudi|termina l\'app|killa|forza chiusura|killami|termina)\s+(.+)', text_clean): return True
-        if re.search(r'(?:attiva|abilita)\s+(?:modalità|profilo)\s+(gaming|gioco|focus|studio|notte|relax)', text_clean): return True
+        if _KILL_RE.search(text_clean): return True
+        if _NOTA_RE.search(text.strip()): return True
+        if re.search(r'\b(?:attiva|abilita)\s+(?:modalità|profilo)\s+(gaming|gioco|focus|studio|notte|relax)', text_clean): return True
         if re.search(r'(?:disattiva|disabilita)\s+(?:modalità|profilo|profili)\s*(gaming|gioco|focus|studio|notte|relax)?', text_clean): return True
         if re.search(r'(?:controlla porta|verifica porta|controlla la porta|verifica la porta)\s+(\d+)', text_clean): return True
         if re.search(r'(?:cerca il file|trova il file|cerca file|trova file)\s+(.+)', text_clean): return True
@@ -63,31 +92,42 @@ class SystemControlPlugin(OmniMindPlugin):
             return True, "Desktop mostrato. 🖥️", "Finestre abbassate."
             
         if any(k in text_clean for k in ["svuota il cestino", "butta l'immondizia", "pulisci il cestino", "svuota cestino"]):
+            if safety.serve_conferma():
+                return safety.richiedi("Sto per svuotare definitivamente il Cestino. Confermi?",
+                                       "Confermi lo svuotamento del cestino?")
             return empty_recycle_bin()
             
-        if any(k in text_clean for k in ["come sta il pc", "prestazioni", "analisi di sistema", "status pc", "stato del sistema"]):
+        if any(k in text_clean for k in ["come sta il pc", "analisi di sistema", "status pc", "stato del sistema",
+                                         "prestazioni del pc", "prestazioni del sistema", "prestazioni hardware"]):
             return True, "system_diagnostics_trigger:", ""
-            
-        kill_match = re.search(r'\b(?:chiudi il programma|termina il processo|chiudi|termina l\'app|killa|forza chiusura|killami|termina)\s+(.+)', text_clean)
+
+        kill_match = _KILL_RE.search(text.strip())
         if kill_match:
-            orig_match = re.search(r'\b(?:chiudi il programma|termina il processo|chiudi|termina l\'app|killa|forza chiusura|killami|termina)\s+(.+)', text, re.IGNORECASE)
-            app_name = orig_match.group(1).strip() if orig_match else kill_match.group(1).strip()
+            app_name = kill_match.group(1).strip()
             if app_name and app_name.lower() not in ["", "tutto", "omnimind"]:
+                if safety.serve_conferma():
+                    return safety.richiedi(
+                        f"Sto per chiudere forzatamente i processi di **{app_name}**. Confermi?",
+                        f"Confermi la chiusura di {app_name}?")
                 return True, f"process_kill_trigger:{app_name}", ""
                 
         if any(k in text_clean for k in ["ripristina profilo standard", "ripristina standard", "ripristina modalità standard"]):
             return disattiva_profili()
             
-        active_profile_match = re.search(r'(?:attiva|abilita)\s+(?:modalità|profilo)\s+(gaming|gioco|focus|studio|notte|relax)', text_clean)
+        # La disattivazione va valutata PRIMA dell'attivazione. Senza il \b
+        # iniziale la regex di attivazione veniva trovata dentro la parola
+        # "dis-attiva", quindi "disattiva modalità gaming" finiva per ATTIVARE
+        # il profilo Gaming: l'utente otteneva l'opposto di quanto chiesto.
+        disable_profile_match = re.search(r'\b(?:disattiva|disabilita)\s+(?:modalità|profilo|profili)\s*(gaming|gioco|focus|studio|notte|relax)?', text_clean)
+        if disable_profile_match:
+            return disattiva_profili()
+
+        active_profile_match = re.search(r'\b(?:attiva|abilita)\s+(?:modalità|profilo)\s+(gaming|gioco|focus|studio|notte|relax)', text_clean)
         if active_profile_match:
             prof = active_profile_match.group(1)
             if prof in ["gaming", "gioco"]: return attiva_profilo("gaming")
             elif prof in ["focus", "studio"]: return attiva_profilo("focus")
             elif prof in ["notte", "relax"]: return attiva_profilo("notte")
-            
-        disable_profile_match = re.search(r'(?:disattiva|disabilita)\s+(?:modalità|profilo|profili)\s*(gaming|gioco|focus|studio|notte|relax)?', text_clean)
-        if disable_profile_match:
-            return disattiva_profili()
             
         if any(k in text_clean for k in ["quanta ram sto usando", "stato cpu", "temperatura hardware", "risorse di sistema", "stato hardware", "consumo risorse"]):
             return get_system_resources_status()
@@ -100,6 +140,9 @@ class SystemControlPlugin(OmniMindPlugin):
             return check_port_status(int(port_match.group(1)))
             
         if any(k in text_clean for k in ["fai ordine nei download", "organizza i download", "pulisci la cartella download", "organizza download"]):
+            if safety.serve_conferma():
+                return safety.richiedi("Sto per spostare i file della cartella Download in sottocartelle. Confermi?",
+                                       "Confermi il riordino dei download?")
             return organize_downloads()
             
         if any(k in text_clean for k in ["estrai l'ultimo download", "scompatta l'ultimo download", "scompatta ultimo file", "estrai ultimo file"]):
@@ -130,6 +173,9 @@ class SystemControlPlugin(OmniMindPlugin):
         if sd_min_match:
             minutes = int(sd_min_match.group(1))
             seconds = minutes * 60
+            if safety.serve_conferma():
+                return safety.richiedi(f"Sto per programmare lo spegnimento del PC tra {minutes} minuti. Confermi?",
+                                       f"Confermi lo spegnimento tra {minutes} minuti?")
             try:
                 subprocess.run(["shutdown", "/s", "/t", str(seconds)], creationflags=subprocess.CREATE_NO_WINDOW)
                 return True, f"timer_set:{seconds}:Spegnimento PC", ""
@@ -137,6 +183,9 @@ class SystemControlPlugin(OmniMindPlugin):
                 return True, f"Errore nell'impostare il timer: {e}", "Non posso programmare lo spegnimento."
 
         if any(k in text_clean for k in ["spegni il pc", "spegni il computer", "arresta il sistema"]):
+            if safety.serve_conferma():
+                return safety.richiedi("Sto per spegnere il PC tra 60 secondi. Confermi?",
+                                       "Confermi lo spegnimento del computer?")
             try:
                 subprocess.run(["shutdown", "/s", "/t", "60"], creationflags=subprocess.CREATE_NO_WINDOW)
                 return True, "Spegnimento pianificato tra 60 secondi.\nDigita o di' 'annulla spegnimento' per bloccarlo.", "Spegnimento pianificato tra un minuto."
@@ -144,6 +193,9 @@ class SystemControlPlugin(OmniMindPlugin):
                 return True, "Impossibile spegnere il computer.", "Non posso spegnere il computer."
 
         if any(k in text_clean for k in ["riavvia il pc", "riavvia il computer", "riavvia il sistema"]):
+            if safety.serve_conferma():
+                return safety.richiedi("Sto per riavviare il PC tra 60 secondi. Confermi?",
+                                       "Confermi il riavvio del computer?")
             try:
                 subprocess.run(["shutdown", "/r", "/t", "60"], creationflags=subprocess.CREATE_NO_WINDOW)
                 return True, "Riavvio pianificato tra 60 secondi.\nDigita o di' 'annulla spegnimento' per bloccarlo.", "Riavvio pianificato tra un minuto."
@@ -163,14 +215,16 @@ class SystemControlPlugin(OmniMindPlugin):
             length = max(6, min(64, length))
             password = generate_secure_password(length)
             pyperclip.copy(password)
-            return True, f"Password generata: `{password}` (copiata negli appunti).", f"Ho generato una password di {length} caratteri e l'ho copiata negli appunti."
+            # Il valore non viene restituito in chat: ogni chat_response di un
+            # comando sincrono viene persistito in chiaro in chat_history.
+            return True, f"Password di {length} caratteri generata e copiata negli appunti. Non la mostro e non la salvo nella cronologia.", f"Ho generato una password di {length} caratteri e l'ho copiata negli appunti."
 
         if any(k in text_clean for k in ["generami una password", "crea una password", "crea password"]):
             password = generate_secure_password(16)
             pyperclip.copy(password)
-            return True, f"Password generata: `{password}` (copiata negli appunti).", "Ho generato una password di sedici caratteri e l'ho copiata negli appunti."
+            return True, "Password di 16 caratteri generata e copiata negli appunti. Non la mostro e non la salvo nella cronologia.", "Ho generato una password di sedici caratteri e l'ho copiata negli appunti."
 
-        note_match = re.search(r'^(?:prendi nota:|prendi nota che|scrivi negli appunti che|scrivi negli appunti:)\s*(.+)', text, re.IGNORECASE)
+        note_match = _NOTA_RE.search(text.strip())
         if note_match:
             import datetime
             from src.config import BASE_DIR

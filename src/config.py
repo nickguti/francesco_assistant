@@ -1,5 +1,6 @@
 import os
 import json
+import copy
 import threading
 from pathlib import Path
 from dotenv import load_dotenv
@@ -68,7 +69,9 @@ DEFAULT_CONFIG = {
     "night_blue_light": True,
     "night_sleep_timer": "Mai",
     "trigger_time_night": "",
-    "trigger_app_gaming": ""
+    "trigger_app_gaming": "",
+    "disabled_plugins": [],
+    "plugin_settings": {}
 }
 
 _config_lock = threading.Lock()
@@ -83,41 +86,45 @@ def load_config() -> dict:
     essendo thread-safe per un accesso concorrente.
     """
     global _cached_config, _last_mtime
-    
+
     with _config_lock:
         if not CONFIG_FILE.exists():
+            # deepcopy: DEFAULT_CONFIG contiene valori mutabili
+            # (disabled_plugins, plugin_settings). Con una copia superficiale
+            # ogni chiamante condivideva gli stessi oggetti annidati e mutarli
+            # in-place inquinava i default e la cache.
             save_config_internal(DEFAULT_CONFIG)
-            _cached_config = DEFAULT_CONFIG.copy()
+            _cached_config = copy.deepcopy(DEFAULT_CONFIG)
             _last_mtime = os.path.getmtime(CONFIG_FILE)
-            return _cached_config.copy()
-            
+            return copy.deepcopy(_cached_config)
+
         try:
             current_mtime = os.path.getmtime(CONFIG_FILE)
             if _cached_config is not None and current_mtime <= _last_mtime:
-                return _cached_config.copy()
-                
+                return copy.deepcopy(_cached_config)
+
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 config = json.load(f)
-                
+
             updated = False
             for key, val in DEFAULT_CONFIG.items():
                 if key not in config:
-                    config[key] = val
+                    config[key] = copy.deepcopy(val)
                     updated = True
-                    
+
             if updated:
                 save_config_internal(config)
                 current_mtime = os.path.getmtime(CONFIG_FILE)
-                
+
             _cached_config = config
             _last_mtime = current_mtime
-            return config.copy()
-            
+            return copy.deepcopy(config)
+
         except Exception as e:
             print(f"Errore nella lettura di config.json ({e}). Utilizzo i valori in cache o di default.")
             if _cached_config is not None:
-                return _cached_config.copy()
-            return DEFAULT_CONFIG.copy()
+                return copy.deepcopy(_cached_config)
+            return copy.deepcopy(DEFAULT_CONFIG)
 
 def save_config_internal(config_data: dict):
     """Versione interna senza lock per evitare deadlock ricorsivi."""
@@ -132,7 +139,7 @@ def save_config(config_data: dict):
     with _config_lock:
         save_config_internal(config_data)
         global _cached_config, _last_mtime
-        _cached_config = config_data.copy()
+        _cached_config = copy.deepcopy(config_data)
         try:
             _last_mtime = os.path.getmtime(CONFIG_FILE)
         except OSError:

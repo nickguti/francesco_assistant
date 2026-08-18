@@ -1,8 +1,13 @@
 import re
 import logging
 from src.plugins.base_plugin import OmniMindPlugin
+from src import safety
 
 logger = logging.getLogger("PluginAIFeatures")
+
+# Ancorato a inizio frase: la parola "automazione" isolata dentro una domanda
+# innescava l'esecuzione di macro reali su tastiera e mouse.
+_RPA_RE = re.compile(r'^(?:esegui\s+automazion[ei]|fai questo per me)\b\s*:?\s*(.+)', re.IGNORECASE)
 
 class AIFeaturesPlugin(OmniMindPlugin):
     """
@@ -10,8 +15,19 @@ class AIFeaturesPlugin(OmniMindPlugin):
     RPA, Analisi Schermo, Lettura Appunti, Riassunto Documenti e Traduzione.
     Restituiscono trigger asincroni a main.pyw.
     """
+    name = "Intelligenza Artificiale"
+    description = "Gestisce l'automazione RPA, la traduzione linguistica, la visione dello schermo e il riassunto di documenti locali."
+    priority = 40
+    examples = [
+        ("esegui automazione: apri il blocco note e scrivi una poesia", "Sequenza di azioni su tastiera e finestre"),
+        ("analizza lo schermo", "Cattura lo schermo e lo fa analizzare"),
+        ("spiegami gli appunti", "Legge e analizza il contenuto degli appunti"),
+        ("riassumi il documento C:/percorso/file.pdf", "Riassunto di un file .txt o .pdf"),
+        ("traduci in inglese: buongiorno", "Traduzione istantanea"),
+    ]
+
     def can_handle(self, text_clean: str, text: str) -> bool:
-        if any(k in text_clean for k in ["esegui automazione", "esegui automazioni", "fai questo per me", "automazione", "automazioni"]): return True
+        if _RPA_RE.search(text): return True
         if any(k in text_clean for k in ["guarda qui", "spiegami cosa c'è a schermo", "analizza questo errore", "guarda lo schermo", "analizza lo schermo"]): return True
         if any(k in text_clean for k in ["analizza appunti", "spiegami gli appunti", "spiegami gli appunti di windows", "analizza gli appunti", "analizza il clipboard", "spiega appunti"]): return True
         if re.search(r'\b(?:riassumi il documento|leggi questo file|riassumi il file|leggi il file)\s+(.+)', text_clean): return True
@@ -20,9 +36,15 @@ class AIFeaturesPlugin(OmniMindPlugin):
         return False
 
     def execute(self, text_clean: str, text: str) -> tuple[bool, str, str]:
-        if any(k in text_clean for k in ["esegui automazione", "esegui automazioni", "fai questo per me", "automazione", "automazioni"]):
-            prompt = text.replace("esegui automazioni", "").replace("esegui automazione", "").replace("fai questo per me", "").replace("automazioni", "").replace("automazione", "").strip()
-            if prompt.startswith(":"): prompt = prompt[1:].strip()
+        rpa_match = _RPA_RE.search(text)
+        if rpa_match:
+            prompt = rpa_match.group(1).strip()
+            # L'automazione muove tastiera e mouse reali su una sequenza
+            # inventata dal modello: e' l'azione piu' invasiva dell'app.
+            if safety.serve_conferma():
+                return safety.richiedi(
+                    f"Sto per eseguire un'automazione su tastiera e finestre per: **{prompt}**. Confermi?",
+                    "Confermi l'esecuzione dell'automazione?")
             return True, f"rpa_trigger:{prompt}", ""
             
         if any(k in text_clean for k in ["guarda qui", "spiegami cosa c'è a schermo", "analizza questo errore", "guarda lo schermo", "analizza lo schermo"]):
