@@ -4,6 +4,13 @@ from pathlib import Path
 from PIL import ImageGrab
 import google.generativeai as genai
 from src.config import load_config
+from src.utils import costruisci_prompt_dati
+
+# Numero massimo di turni (utente + modello) ritrasmessi ad ogni richiesta.
+# Senza limite la history cresceva per tutta la sessione: latenza e costo
+# crescevano linearmente e, superata la finestra di contesto, ogni
+# risposta diventava un errore di "connessione".
+MAX_TURNI_STORICO = 20
 
 logger = logging.getLogger("OmniMindGemini")
 
@@ -42,27 +49,82 @@ class GeminiClient:
             self._model_name = config.get("gemini_model", "gemini-2.5-flash")
             self.model = genai.GenerativeModel(
                 model_name=self._model_name,
-                system_instruction=self.system_instruction
+                system_instruction=self.system_instruction,
+                generation_config=self._generation_config(config),
             )
             self.chat = self.model.start_chat(history=[])
             logger.info(f"Client Gemini ({self._model_name}) inizializzato correttamente.")
         except Exception as e:
             logger.error(f"Errore nell'inizializzazione del modello Gemini: {e}")
 
+    def _generation_config(self, config: dict | None = None):
+        """Costruisce la configurazione di generazione dalle impostazioni utente."""
+        cfg = config if config is not None else load_config()
+        try:
+            temperatura = float(cfg.get("temperature", 0.7))
+        except (TypeError, ValueError):
+            temperatura = 0.7
+        # La temperatura era esposta come slider "Creativita'" e salvata nel
+        # config, ma non veniva mai passata all'SDK: il controllo era decorativo.
+        return genai.types.GenerationConfig(temperature=max(0.0, min(2.0, temperatura)))
+
+    def _storico_troncato(self) -> list:
+        """Ritorna gli ultimi MAX_TURNI_STORICO scambi della conversazione."""
+        if not self.chat:
+            return []
+        try:
+            return list(self.chat.history)[-(MAX_TURNI_STORICO * 2):]
+        except Exception:
+            return []
+
+    def aggiorna_credenziali(self, config: dict):
+        """
+        Applica chiave API e modello a runtime PRESERVANDO la conversazione.
+
+        Prima si chiamava _initialize(), che rifaceva start_chat(history=[]):
+        salvare una qualsiasi impostazione (anche solo il tema) cancellava
+        il contesto della chat in corso senza avvisare l'utente.
+        """
+        nuova_chiave = config.get("gemini_api_key", "")
+        nuovo_modello = config.get("gemini_model", self._model_name)
+
+        chiave_cambiata = nuova_chiave != self.api_key
+        self.api_key = nuova_chiave
+        self._model_name = nuovo_modello
+
+        if not self.api_key:
+            self.model = None
+            self.chat = None
+            return
+
+        try:
+            if chiave_cambiata:
+                genai.configure(api_key=self.api_key)
+            storico = self._storico_troncato()
+            self.model = genai.GenerativeModel(
+                model_name=self._model_name,
+                system_instruction=self.system_instruction,
+                generation_config=self._generation_config(config),
+            )
+            self.chat = self.model.start_chat(history=storico)
+            logger.info(f"Credenziali Gemini aggiornate (modello {self._model_name}), conversazione preservata.")
+        except Exception as e:
+            logger.error(f"Errore nell'aggiornare le credenziali Gemini: {e}")
+
     def detect_sentiment(self, text: str) -> str:
         """Rileva se l'utente mostra segni di rabbia, frustrazione o frenesia (es. uso del maiuscolo o parole forti)."""
         is_angry = False
-        
+
         # Rileva se scrive in maiuscolo (frenesia)
         if text.isupper() and len(text) > 5:
             is_angry = True
-            
+
         # Rileva parole chiave associate a irritazione o frustrazione
         angry_keywords = ["rabbia", "cazzo", "merda", "fanculo", "odio", "uffa", "non funziona", "schifo", "rompe", "stupido"]
         text_lower = text.lower()
         if any(w in text_lower for w in angry_keywords):
             is_angry = True
-            
+
         if is_angry:
             logger.info("Rilevato tono di frustrazione/rabbia. OmniMind adotterà risposte calme ed empatiche.")
             return (
@@ -79,13 +141,18 @@ class GeminiClient:
                 "Per favore, imposta la tua chiave GEMINI_API_KEY nelle impostazioni e riavviami.",
                 None
             )
-            
+
+        # Definita PRIMA del try: se load_config() sollevava, sys_inst restava
+        # inesistente e piu' avanti produceva un NameError mascherato da un
+        # messaggio fuorviante.
+        sys_inst = self.system_instruction
+        config = {}
+
         try:
             # Rileva il profilo attivo e adatta le istruzioni di sistema a runtime
             config = load_config()
             active_profile = config.get("active_profile", "Nessuno")
-            sys_inst = self.system_instruction
-            
+
             if active_profile == "Gaming":
                 sys_inst += (
                     "\n[ATTENZIONE: Rispondi in modalità sintetica ed essenziale. Massima brevità (massimo 10-15 parole), "
@@ -95,13 +162,20 @@ class GeminiClient:
                 sys_inst += (
                     "\n[ATTENZIONE: Rispondi con un tono rilassante, pacato ed empatico, ideale per la notte.]"
                 )
-                
+
+            # La direttiva di tono vale SOLO per questo turno: prima veniva
+            # concatenata al messaggio dell'utente e finiva quindi nella history,
+            # restando attiva per tutta la sessione nonostante si dichiarasse
+            # "temporanea".
+            sys_inst += self.detect_sentiment(message_text)
+
             self.model = genai.GenerativeModel(
                 model_name=self._model_name,
-                system_instruction=sys_inst
+                system_instruction=sys_inst,
+                generation_config=self._generation_config(config),
             )
-            # Trasferisci la cronologia della chat precedente al nuovo modello
-            old_history = self.chat.history if self.chat else []
+            # Trasferisce la cronologia precedente, troncata alla finestra utile
+            old_history = self._storico_troncato()
             self.chat = self.model.start_chat(history=old_history)
         except Exception as e:
             logger.error(f"Errore nel configurare il modello dinamico: {e}")
@@ -110,16 +184,13 @@ class GeminiClient:
             return "C'è stato un problema nella configurazione del modulo AI.", None
 
         try:
-            # Analisi del tono/sentiment ed inserimento di prompt euristico invisibile
-            sentiment_directive = self.detect_sentiment(message_text)
-            full_prompt = f"{sentiment_directive}{message_text}"
-            
-            # Invia il prompt testuale
-            response = self.chat.send_message(full_prompt)
-            
+            # Il messaggio inviato e' quello dell'utente e basta: la direttiva
+            # di tono e' gia' nella system instruction di questo turno.
+            response = self.chat.send_message(message_text)
+
             text_response = ""
             audio_bytes = None
-            
+
             try:
                 if response.candidates and response.candidates[0].content.parts:
                     for part in response.candidates[0].content.parts:
@@ -142,14 +213,14 @@ class GeminiClient:
                 except Exception as ex:
                     logger.error(f"Errore nel recupero testo: {ex}")
                     text_response = "Ecco la mia risposta audio."
-            
+
             audio_path = None
             if audio_bytes:
                 from src.config import TEMP_DIR
                 audio_path = os.path.join(TEMP_DIR, "gemini_speech.mp3")
                 with open(audio_path, "wb") as f:
                     f.write(audio_bytes)
-                    
+
             return text_response, audio_path
         except Exception as e:
             logger.error(f"Errore durante l'invio del messaggio a Gemini: {e}")
@@ -159,21 +230,22 @@ class GeminiClient:
         """Cattura lo schermo del PC ed esegue un'analisi visiva dello screenshot tramite Gemini."""
         if not self.api_key or not self.model:
             return "Modulo AI non configurato. Impossibile analizzare lo schermo.", None
-            
+
         try:
             from src.config import TEMP_DIR
             logger.info("Cattura dello screenshot in corso per visione multimodale...")
             screenshot = ImageGrab.grab(all_screens=True)
             capture_path = os.path.join(TEMP_DIR, "vision_capture.png")
             screenshot.save(capture_path)
-            
+
             system_prompt = (
                 "Sei l'assistente desktop dell'utente. Analizza questo screenshot dello schermo del computer, "
                 "identifica se ci sono errori di codice, bug, messaggi di errore o spiega cosa stai vedendo in modo conciso, "
                 "diretto e informale in lingua italiana."
             )
-            full_prompt = f"{system_prompt}\nRichiesta utente: {user_prompt}"
-            
+            full_prompt = costruisci_prompt_dati(
+                f"{system_prompt}\nRichiesta dell'utente riportata qui sotto.", user_prompt, 4000)
+
             # Passa l'immagine PIL direttamente all'SDK multimodale
             response = self.model.generate_content([screenshot, full_prompt])
             response_text = response.text if response.text else "Non sono riuscito ad analizzare lo screenshot."
@@ -186,14 +258,14 @@ class GeminiClient:
         """Legge un file .txt o .pdf ed invia il testo a Gemini per estrarre un riassunto strutturato."""
         if not self.api_key or not self.model:
             return "Modulo AI non configurato. Impossibile analizzare il documento."
-            
+
         path = Path(file_path.strip('"\' '))
         if not path.exists():
             return f"Errore: il file localizzato in `{file_path}` non esiste sul disco."
-            
+
         suffix = path.suffix.lower()
         text_content = ""
-        
+
         try:
             if suffix == ".txt":
                 with open(path, "r", encoding="utf-8", errors="ignore") as f:
@@ -211,19 +283,18 @@ class GeminiClient:
                 text_content = "\n".join(pages)
             else:
                 return f"Errore: estensione '{suffix}' non supportata. OmniMind analizza solo file .txt e .pdf."
-                
+
             if not text_content.strip():
                 return "Il file caricato sembra essere vuoto o privo di testo decifrabile."
-                
+
             # Limita i caratteri da inviare per sicurezza
             snippet = text_content[:55000]
-            
-            prompt = (
-                "Sei un riassuntore esperto. Leggi il seguente documento ed estrai un riassunto strutturato in punti chiave "
-                "molto chiari e ordinati in italiano. Suddividi in argomenti principali.\n\n"
-                f"--- INIZIO DOCUMENTO ---\n{snippet}\n--- FINE DOCUMENTO ---"
-            )
-            
+
+            prompt = costruisci_prompt_dati(
+                "Sei un riassuntore esperto. Leggi il documento fornito ed estrai un riassunto strutturato "
+                "in punti chiave molto chiari e ordinati in italiano, suddiviso per argomenti principali.",
+                snippet, 55000)
+
             response = self.model.generate_content(prompt)
             return response.text
         except Exception as e:
@@ -234,7 +305,7 @@ class GeminiClient:
         """Restituisce consigli su gaming/build agendo come un eSports coach professionista."""
         if not self.api_key or not self.model:
             return "Modulo AI non configurato. Impossibile chiedere consigli di gaming."
-            
+
         prompt = (
             "Sei un eSports Coach professionista di videogiochi competitivi. Fornisci consigli su build, rune, "
             "oggetti, strategie, tattiche o counter-picks per il gioco o personaggio indicato. "
@@ -253,7 +324,7 @@ class GeminiClient:
         """Richiede una traduzione esatta e pulita della frase nella lingua specificata."""
         if not self.api_key or not self.model:
             return "Modulo AI non configurato. Traduzione non disponibile."
-            
+
         prompt = (
             f"Traduci la seguente frase in {target_language}. "
             "Fornisci come risposta unicamente la frase tradotta finale. Evita qualsiasi commento, "
@@ -271,7 +342,7 @@ class GeminiClient:
         """Scompone l'obiettivo dell'utente in un array JSON di azioni RPA per Windows."""
         if not self.api_key:
             return "[]"
-            
+
         system_instruction = (
             "Sei un Motore RPA Autonomo e Intelligente. L'utente ti fornirà un OBIETTIVO AD ALTO LIVELLO (es. 'apri il blocco note e scrivimi una poesia' oppure 'cerca i risultati della serie A su youtube'). "
             "Il tuo compito è INFERIRE tutti i passaggi fisici intermedi necessari senza che l'utente debba dettarteli. "
@@ -287,7 +358,7 @@ class GeminiClient:
             "Esempio 'apri notepad e scrivi un haiku': [{ 'action': 'hotkey', 'target': 'win,r' }, { 'action': 'type_text', 'target': 'notepad' }, { 'action': 'press_key', 'target': 'enter' }, { 'action': 'sleep', 'target': '2' }, { 'action': 'type_text', 'target': 'Foglie d autunno\\ncadono lievi al suolo\\nvento d inverno.' }]\n"
             "Rispondi SOLO con l'array JSON valido e nulla più."
         )
-        
+
         try:
             rpa_model = genai.GenerativeModel(
                 model_name="gemini-2.5-flash",
@@ -304,7 +375,7 @@ class GeminiClient:
         if not self.api_key: return "Modulo AI non configurato."
         import json
         sys_info = json.dumps(sys_data, indent=2)
-        
+
         system_prompt = (
             "Sei OmniMind, un Sistemista IT esperto. Ricevi i dati hardware del PC in JSON (CPU, RAM, GPU, e i Top Processi). "
             "Sintetizza in modo discorsivo (2-3 frasi) la salute del sistema. "
@@ -313,7 +384,7 @@ class GeminiClient:
             "della GPU. Genera un allarme SOLO SE la temperatura della GPU ('gpu_temp_c') supera gli 80°C o se un programma non-game satura RAM anomala."
         )
         full_prompt = f"La richiesta dell'utente era: '{user_prompt}'. Hardware: {sys_info}"
-        
+
         try:
             response = self.model.generate_content([system_prompt, full_prompt])
             return response.text.replace("*", "")

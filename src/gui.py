@@ -10,9 +10,9 @@ import shutil
 import markdown
 import psutil
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, 
-    QPushButton, QTextEdit, QLineEdit, QSlider, QComboBox, QCheckBox, 
-    QScrollArea, QStackedWidget, QGridLayout, QGroupBox
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
+    QPushButton, QTextEdit, QLineEdit, QSlider, QComboBox, QCheckBox,
+    QScrollArea, QStackedWidget, QGridLayout, QGroupBox, QFormLayout
 )
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QRectF
 from PyQt6.QtGui import QColor, QPainter, QTextCursor, QPen
@@ -36,13 +36,13 @@ class StatusCircle(QWidget):
         super().__init__(parent)
         self.setFixedSize(16, 16)
         self.color = QColor("#95a5a6")
-        
+
     def set_color(self, color):
         if isinstance(color, str):
             color = QColor(color)
         self.color = color
         self.update()
-        
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -57,34 +57,34 @@ class DonutProgressWidget(QWidget):
         self.title = title
         self.value = 0
         self.setMinimumSize(140, 140)
-        
+
     def setValue(self, val):
         self.value = val
         self.update()
-        
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
+
         rect = self.rect()
         size = min(rect.width(), rect.height()) - 20
         x = (rect.width() - size) / 2
         y = (rect.height() - size) / 2
         draw_rect = QRectF(x, y, size, size)
-        
+
         # Sfondo del cerchio
         pen_bg = QPen(QColor("#1e293b"), 12)
         pen_bg.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(pen_bg)
         painter.drawArc(draw_rect, 0, 360 * 16)
-        
+
         # Arco del progresso
         pen_fg = QPen(self.color, 12)
         pen_fg.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(pen_fg)
         span_angle = int(-self.value * 3.6 * 16)
         painter.drawArc(draw_rect, 90 * 16, span_angle)
-        
+
         # Testo percentuale al centro
         painter.setPen(QColor("white"))
         font = painter.font()
@@ -92,14 +92,14 @@ class DonutProgressWidget(QWidget):
         font.setBold(True)
         painter.setFont(font)
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, f"{self.value}%")
-        
+
         # Titolo in basso
         font.setPointSize(9)
         font.setBold(False)
         painter.setFont(font)
         title_rect = rect.adjusted(0, int(size/2 + 25), 0, 0)
         painter.drawText(title_rect, Qt.AlignmentFlag.AlignCenter, self.title)
-        
+
         painter.end()
 
 class AssistantGUI(QMainWindow):
@@ -112,42 +112,42 @@ class AssistantGUI(QMainWindow):
         self.on_settings_saved = on_settings_saved_callback
         self.on_stop_tts = on_stop_tts_callback
         self.on_state_change = on_state_change_callback
-        
+
         self.config_data = load_config()
         self.is_muted = False
         self._current_state = "muted"
         self.sidebar_collapsed = False
-        
+
         self._pulse_angle = 0.0
         self._chat_status_dots_count = 0
-        
+
         self._typewriter_queue = []
         self._processing_typewriter = False
-        
+
         self.setWindowTitle("OmniMind - Assistente Virtuale")
         self.resize(850, 750)
         self.setMinimumSize(800, 700)
-        
+
         # Sostituisce il protocol("WM_DELETE_WINDOW")
-        
+
         self._apply_theme()
         self._create_layout()
         self._populate_settings_fields()
-        
+
         self.show_screen("chat")
-        
+
         # QTimer polling queue
         self.queue_timer = QTimer(self)
         self.queue_timer.timeout.connect(self.check_queue)
         self.queue_timer.start(100)
-        
+
         # Status animation timers
         self.pulse_timer = QTimer(self)
         self.pulse_timer.timeout.connect(self._pulse_status_circle)
-        
+
         self.chat_status_timer = QTimer(self)
         self.chat_status_timer.timeout.connect(self._animate_chat_status)
-        
+
     def closeEvent(self, event):
         """Minimize to tray instead of closing"""
         event.ignore()
@@ -156,61 +156,169 @@ class AssistantGUI(QMainWindow):
     def _apply_theme(self):
         theme_mode = self.config_data.get("theme", "Scuro")
         accent_name = self.config_data.get("accent_color", "Azzurro")
-        
+
         accents = {
-            "Azzurro": "#38bdf8", "Rosso": "#ef4444", 
+            "Azzurro": "#38bdf8", "Rosso": "#ef4444",
             "Verde": "#10b981", "Viola": "#8b5cf6", "Arancione": "#f59e0b"
         }
         accent = accents.get(accent_name, "#38bdf8")
-        
+
         if theme_mode == "Chiaro":
             bg_main = "#f8fafc"
-            bg_sidebar = "#e2e8f0"
-            bg_hover = "#cbd5e1"
+            bg_sidebar = "#f1f5f9"
+            bg_hover = "#e2e8f0"
             bg_input = "#ffffff"
             text_main = "#0f172a"
             text_dim = "#64748b"
-            card_border = "#cbd5e1"
-            card_bg = "#f1f5f9"
+            card_border = "#e2e8f0"
+            card_bg = "#ffffff"
+            input_border = "#cbd5e1"
+            scroll_handle = "#cbd5e1"
         else:
             bg_main = "#0f172a"
             bg_sidebar = "#1e293b"
             bg_hover = "#334155"
-            bg_input = "#0b0f19"
+            bg_input = "#020617"
             text_main = "#f8fafc"
             text_dim = "#94a3b8"
-            card_border = "#334155"
+            card_border = "#1e293b"
             card_bg = "#1e293b"
-            
+            input_border = "#334155"
+            scroll_handle = "#475569"
+
         self.setStyleSheet(f"""
-            QMainWindow, QWidget#content_container, QScrollArea, QScrollArea > QWidget > QWidget {{ background-color: {bg_main}; color: {text_main}; font-family: "Segoe UI"; }}
-            QFrame#sidebar {{ background-color: {bg_sidebar}; border-right: 1px solid {bg_main}; }}
-            QLabel {{ color: {text_main}; }}
-            QLabel#logo_label {{ color: {accent}; font-size: 18px; font-weight: bold; }}
-            QLabel#status_label {{ color: {text_dim}; font-size: 11px; }}
-            QLabel#chat_status_label {{ color: {text_dim}; font-size: 11px; font-style: italic; }}
-            QLabel#section_title {{ font-size: 20px; font-weight: bold; }}
-            QPushButton {{ background-color: transparent; color: {text_main}; text-align: left; padding: 10px; border: none; font-weight: bold; font-size: 13px; border-radius: 5px; }}
-            QPushButton:hover, QPushButton:checked {{ background-color: {bg_hover}; }}
-            QPushButton#toggle_btn {{ font-size: 16px; padding: 5px; width: 30px; }}
-            QPushButton#mute_btn {{ background-color: {bg_hover}; color: {text_main}; text-align: center; font-size: 11px; }}
-            QPushButton#mute_btn:hover {{ background-color: {card_border}; }}
-            QPushButton#send_btn, QPushButton#save_btn {{ background-color: {accent}; text-align: center; border-radius: 8px; color: #ffffff; }}
-            QPushButton#send_btn:hover, QPushButton#save_btn:hover {{ opacity: 0.8; }}
-            QPushButton#restart_btn {{ background-color: #7f1d1d; color: #f87171; border: 1px solid #991b1b; border-radius: 5px; margin-top: 5px; }}
-            QPushButton#restart_btn:hover {{ background-color: #991b1b; color: white; }}
-            QTextEdit, QLineEdit {{ background-color: {bg_input}; color: {text_main}; border: 1px solid {bg_hover}; border-radius: 8px; font-size: 13px; padding: 5px; }}
-            QSlider::groove:horizontal {{ border: 1px solid {card_border}; height: 6px; background: {bg_main}; margin: 0px 0; border-radius: 3px; }}
-            QSlider::handle:horizontal {{ background: {accent}; border: 1px solid {accent}; width: 14px; margin: -4px 0; border-radius: 7px; }}
-            QComboBox {{ background-color: {bg_main}; border: 1px solid {card_border}; border-radius: 5px; padding: 5px; color: {text_main}; }}
-            QComboBox::drop-down {{ border: none; }}
-            QScrollBar:vertical {{ background: {bg_main}; width: 12px; margin: 0px 0px 0px 0px; }}
-            QScrollBar::handle:vertical {{ background: {bg_hover}; min-height: 20px; border-radius: 6px; }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ border: none; background: none; }}
-            QFrame#card {{ background-color: {card_bg}; border: 1px solid {card_border}; border-radius: 8px; }}
-            QGroupBox {{ font-weight: bold; border: 1px solid {card_border}; border-radius: 6px; margin-top: 10px; padding-top: 15px; color: {text_main}; }}
-            QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 3px 0 3px; color: {accent}; }}
-            QCheckBox {{ color: {text_main}; }}
+            QMainWindow, QWidget#content_container, QScrollArea, QScrollArea > QWidget > QWidget {{
+                background-color: {bg_main};
+                color: {text_main};
+                font-family: "Segoe UI", "Roboto", sans-serif;
+            }}
+            QFrame#sidebar {{
+                background-color: {bg_sidebar};
+                border-right: 1px solid {card_border};
+            }}
+            QLabel {{ color: {text_main}; font-family: "Segoe UI", "Roboto", sans-serif; }}
+            QLabel#logo_label {{ color: {accent}; font-size: 22px; font-weight: 800; letter-spacing: 1px; }}
+            QLabel#status_label {{ color: {text_dim}; font-size: 12px; }}
+            QLabel#chat_status_label {{ color: {text_dim}; font-size: 12px; font-style: italic; }}
+            QLabel#section_title {{ font-size: 24px; font-weight: bold; margin-bottom: 10px; }}
+
+            QPushButton {{
+                background-color: transparent;
+                color: {text_main};
+                text-align: left;
+                padding: 12px 15px;
+                border: none;
+                font-weight: 600;
+                font-size: 14px;
+                border-radius: 8px;
+            }}
+            QPushButton:hover {{ background-color: {bg_hover}; }}
+            QPushButton:checked {{ background-color: {bg_hover}; color: {accent}; font-weight: bold; }}
+
+            QPushButton#toggle_btn {{ font-size: 18px; padding: 5px; width: 35px; border-radius: 8px; text-align: center; }}
+
+            QPushButton#mute_btn {{
+                background-color: {bg_hover};
+                color: {text_main};
+                text-align: center;
+                font-size: 13px;
+                font-weight: bold;
+                border-radius: 8px;
+            }}
+            QPushButton#mute_btn:hover {{ background-color: {card_border}; border: 1px solid {accent}; }}
+
+            QPushButton#send_btn, QPushButton#save_btn {{
+                background-color: {accent};
+                text-align: center;
+                border-radius: 8px;
+                color: #ffffff;
+                font-weight: bold;
+                font-size: 14px;
+                padding: 10px;
+            }}
+            QPushButton#send_btn:hover, QPushButton#save_btn:hover {{ background-color: {bg_main}; border: 2px solid {accent}; color: {accent}; }}
+
+            QPushButton#restart_btn {{
+                background-color: transparent;
+                color: #ef4444;
+                border: 1px solid #7f1d1d;
+                border-radius: 8px;
+                margin-top: 5px;
+                text-align: center;
+            }}
+            QPushButton#restart_btn:hover {{ background-color: #ef4444; color: white; border: none; }}
+
+            QTextEdit, QLineEdit {{
+                background-color: {bg_input};
+                color: {text_main};
+                border: 1px solid {input_border};
+                border-radius: 10px;
+                font-size: 14px;
+                padding: 12px;
+            }}
+            QTextEdit:focus, QLineEdit:focus {{ border: 1px solid {accent}; }}
+
+            QSlider::groove:horizontal {{
+                border: none;
+                height: 6px;
+                background: {bg_main};
+                border-radius: 3px;
+            }}
+            QSlider::sub-page:horizontal {{ background: {accent}; border-radius: 3px; }}
+            QSlider::handle:horizontal {{
+                background: {text_main};
+                border: 2px solid {accent};
+                width: 16px;
+                margin: -5px 0;
+                border-radius: 8px;
+            }}
+
+            QComboBox, QSpinBox {{
+                background-color: {bg_input};
+                border: 1px solid {input_border};
+                border-radius: 8px;
+                padding: 8px 12px;
+                color: {text_main};
+                font-size: 13px;
+            }}
+            QComboBox::drop-down {{ border: none; width: 30px; }}
+
+            QScrollBar:vertical {{
+                background: transparent;
+                width: 10px;
+                margin: 0px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {scroll_handle};
+                min-height: 30px;
+                border-radius: 5px;
+            }}
+            QScrollBar::handle:vertical:hover {{ background: {accent}; }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ border: none; background: none; height: 0px; }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
+
+            QFrame#card {{
+                background-color: {card_bg};
+                border: 1px solid {card_border};
+                border-radius: 12px;
+            }}
+
+            QCheckBox {{
+                color: {text_main};
+                font-size: 13px;
+                spacing: 8px;
+            }}
+            QCheckBox::indicator {{
+                width: 18px;
+                height: 18px;
+                border-radius: 4px;
+                border: 1px solid {input_border};
+                background-color: {bg_input};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {accent};
+                border: 1px solid {accent};
+            }}
         """)
 
     def _create_layout(self):
@@ -226,7 +334,7 @@ class AssistantGUI(QMainWindow):
         self.sidebar_frame.setFixedWidth(220)
         self.sidebar_layout = QVBoxLayout(self.sidebar_frame)
         self.sidebar_layout.setContentsMargins(10, 20, 10, 20)
-        
+
         self.logo_layout = QHBoxLayout()
         self.logo_label = QLabel("OMNIMIND")
         self.logo_label.setObjectName("logo_label")
@@ -250,13 +358,14 @@ class AssistantGUI(QMainWindow):
         self.sidebar_layout.addSpacing(20)
 
         self.nav_btns = []
-        
+
         self.chat_nav_btn = self._create_nav_btn("💬  Chat", "chat")
         self.settings_nav_btn = self._create_nav_btn("⚙️  Impostazioni", "settings")
         self.modes_nav_btn = self._create_nav_btn("🎯  Profili / Modalità", "modes")
         self.instructions_nav_btn = self._create_nav_btn("📖  Guida Comandi", "instructions")
         self.logs_nav_btn = self._create_nav_btn("📊  Log di Sistema", "logs")
         self.dashboard_nav_btn = self._create_nav_btn("🖥️  Dashboard Hardware", "dashboard")
+        self.plugins_nav_btn = self._create_nav_btn("🧩  Gestione Plugin", "plugins")
         self.history_nav_btn = self._create_nav_btn("📜  Cronologia Vecchia", "history")
 
         self.sidebar_layout.addStretch()
@@ -280,7 +389,7 @@ class AssistantGUI(QMainWindow):
         # ----------------- CONTENT CONTAINER -----------------
         self.content_container = QStackedWidget()
         self.content_container.setObjectName("content_container")
-        
+
         self.main_layout.addWidget(self.sidebar_frame)
         self.main_layout.addWidget(self.content_container, 1)
 
@@ -290,6 +399,7 @@ class AssistantGUI(QMainWindow):
         self._build_instructions_screen()
         self._build_logs_screen()
         self._build_dashboard_screen()
+        self._build_plugins_screen()
         self._build_history_screen()
 
         # Add screens to stacked widget
@@ -300,6 +410,7 @@ class AssistantGUI(QMainWindow):
             "instructions": self.instructions_screen,
             "logs": self.logs_screen,
             "dashboard": self.dashboard_screen,
+            "plugins": self.plugins_screen,
             "history": self.history_screen
         }
         for name, widget in self.screens.items():
@@ -314,35 +425,48 @@ class AssistantGUI(QMainWindow):
         self.nav_btns.append((btn, text, screen_name))
         return btn
 
+
+
+    def _create_card(self, title_text):
+        card = QFrame()
+        card.setObjectName("card")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+        title = QLabel(title_text)
+        title.setStyleSheet("color: #38bdf8; font-size: 16px; font-weight: bold;")
+        layout.addWidget(title)
+        return card, layout
+
     def _build_chat_screen(self):
         self.chat_screen = QWidget()
         layout = QVBoxLayout(self.chat_screen)
         layout.setContentsMargins(15, 15, 15, 15)
-        
+
         self.chat_log = QTextEdit()
         self.chat_log.setReadOnly(True)
         layout.addWidget(self.chat_log, 1)
-        
+
         self.chat_status_label = QLabel("")
         self.chat_status_label.setObjectName("chat_status_label")
         layout.addWidget(self.chat_status_label)
-        
+
         input_layout = QHBoxLayout()
         self.entry_box = QLineEdit()
         self.entry_box.setPlaceholderText("Invia un messaggio o digita un comando...")
         self.entry_box.setFixedHeight(45)
         self.entry_box.returnPressed.connect(self.send_message)
-        
+
         self.send_btn = QPushButton("Invia")
         self.send_btn.setObjectName("send_btn")
         self.send_btn.setFixedSize(80, 45)
         self.send_btn.clicked.connect(self.send_message)
-        
+
         self.stop_tts_btn = QPushButton("⏹️")
         self.stop_tts_btn.setObjectName("send_btn")
         self.stop_tts_btn.setFixedSize(45, 45)
         self.stop_tts_btn.clicked.connect(self._handle_stop_tts)
-        
+
         input_layout.addWidget(self.entry_box, 1)
         input_layout.addWidget(self.stop_tts_btn)
         input_layout.addWidget(self.send_btn)
@@ -356,143 +480,149 @@ class AssistantGUI(QMainWindow):
         self.settings_screen = QScrollArea()
         self.settings_screen.setWidgetResizable(True)
         self.settings_screen.setFrameShape(QFrame.Shape.NoFrame)
-        
+
         content = QWidget()
         layout = QVBoxLayout(content)
-        
+
         title = QLabel("Configurazione Avanzata")
         title.setObjectName("section_title")
         layout.addWidget(title)
-        
+
         grid = QGridLayout()
         grid.setSpacing(20)
-        
+
         # --- Card 1: Intelligenza Artificiale ---
-        ai_group = QGroupBox("🧠 Intelligenza Artificiale")
-        ai_layout = QGridLayout()
-        ai_layout.addWidget(QLabel("Gemini API Key:"), 0, 0)
+        ai_card, ai_layout_v = self._create_card("🧠 Intelligenza Artificiale")
+        ai_layout = QFormLayout()
         self.key_entry = QLineEdit()
         self.key_entry.setEchoMode(QLineEdit.EchoMode.Password)
-        ai_layout.addWidget(self.key_entry, 0, 1)
-        
-        ai_layout.addWidget(QLabel("Modello AI:"), 1, 0)
+        self.key_entry.setMaximumWidth(250)
+        ai_layout.addRow("Gemini API Key:", self.key_entry)
+
         self.model_combo = QComboBox()
         self.model_combo.addItems(["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-1.5-pro"])
-        ai_layout.addWidget(self.model_combo, 1, 1)
-        
-        ai_layout.addWidget(QLabel("Creatività (Temp):"), 2, 0)
+        self.model_combo.setMaximumWidth(250)
+        ai_layout.addRow("Modello AI:", self.model_combo)
+
         self.temp_slider = QSlider(Qt.Orientation.Horizontal)
         self.temp_slider.setRange(0, 10)
-        ai_layout.addWidget(self.temp_slider, 2, 1)
-        ai_group.setLayout(ai_layout)
-        grid.addWidget(ai_group, 0, 0)
-        
+        self.temp_slider.setMaximumWidth(250)
+        ai_layout.addRow("Creatività (Temp):", self.temp_slider)
+        ai_layout_v.addLayout(ai_layout)
+        grid.addWidget(ai_card, 0, 0)
+
         # --- Card 2: Hardware & Voce ---
-        hw_group = QGroupBox("🎙️ Hardware & Voce")
-        hw_layout = QGridLayout()
-        hw_layout.addWidget(QLabel("Wake-Word:"), 0, 0)
+        hw_card, hw_layout_v = self._create_card("🎙️ Hardware & Voce")
+        hw_layout = QFormLayout()
         self.wakeword_entry = QLineEdit()
-        hw_layout.addWidget(self.wakeword_entry, 0, 1)
-        
-        hw_layout.addWidget(QLabel("Sintesi Vocale:"), 1, 0)
+        self.wakeword_entry.setMaximumWidth(250)
+        hw_layout.addRow("Wake-Word:", self.wakeword_entry)
+
         self.voice_combo = QComboBox()
         self.voice_combo.addItems(["it-IT-GiuseppeNeural", "it-IT-ElsaNeural", "it-IT-DiegoNeural"])
-        hw_layout.addWidget(self.voice_combo, 1, 1)
-        
-        hw_layout.addWidget(QLabel("Soglia Rumore Mic:"), 2, 0)
+        self.voice_combo.setMaximumWidth(250)
+        hw_layout.addRow("Sintesi Vocale:", self.voice_combo)
+
         self.mic_slider = QSlider(Qt.Orientation.Horizontal)
         self.mic_slider.setRange(100, 2000)
-        hw_layout.addWidget(self.mic_slider, 2, 1)
-        hw_group.setLayout(hw_layout)
-        grid.addWidget(hw_group, 0, 1)
+        self.mic_slider.setMaximumWidth(250)
+        hw_layout.addRow("Soglia Rumore Mic:", self.mic_slider)
+        hw_layout_v.addLayout(hw_layout)
+        grid.addWidget(hw_card, 0, 1)
 
         # --- Card 3: Aspetto & Sistema ---
-        sys_group = QGroupBox("⚙️ Aspetto & Sistema")
-        sys_layout = QGridLayout()
-        sys_layout.addWidget(QLabel("Tema Scuro/Chiaro:"), 0, 0)
+        sys_card, sys_layout_v = self._create_card("⚙️ Aspetto & Sistema")
+        sys_layout = QFormLayout()
         self.theme_combo = QComboBox()
         self.theme_combo.addItems(["Scuro", "Chiaro"])
-        sys_layout.addWidget(self.theme_combo, 0, 1)
-        
-        sys_layout.addWidget(QLabel("Colore Accento:"), 1, 0)
+        self.theme_combo.setMaximumWidth(250)
+        sys_layout.addRow("Tema:", self.theme_combo)
+
         self.accent_combo = QComboBox()
         self.accent_combo.addItems(["Azzurro", "Rosso", "Verde", "Viola", "Arancione"])
-        sys_layout.addWidget(self.accent_combo, 1, 1)
-        
-        self.windows_start_cb = QCheckBox("Avvia automaticamente con Windows")
-        sys_layout.addWidget(self.windows_start_cb, 2, 0, 1, 2)
-        
-        self.minimize_start_cb = QCheckBox("Avvia minimizzato nella Tray")
-        sys_layout.addWidget(self.minimize_start_cb, 3, 0, 1, 2)
-        sys_group.setLayout(sys_layout)
-        grid.addWidget(sys_group, 1, 0)
+        self.accent_combo.setMaximumWidth(250)
+        sys_layout.addRow("Accento:", self.accent_combo)
+        sys_layout_v.addLayout(sys_layout)
+
+        self.windows_start_cb = QCheckBox("Avvia con Windows")
+        sys_layout_v.addWidget(self.windows_start_cb)
+
+        self.minimize_start_cb = QCheckBox("Avvia minimizzato")
+        sys_layout_v.addWidget(self.minimize_start_cb)
+        grid.addWidget(sys_card, 1, 0)
 
         # --- Card 4: Automazione RPA ---
-        rpa_group = QGroupBox("🤖 Automazione (RPA)")
-        rpa_layout = QGridLayout()
-        rpa_layout.addWidget(QLabel("Velocità Digitazione:"), 0, 0)
+        rpa_card, rpa_layout_v = self._create_card("🤖 Automazione (RPA)")
+        rpa_layout = QFormLayout()
         self.rpa_delay_combo = QComboBox()
         self.rpa_delay_combo.addItems(["Lento (Sicuro)", "Normale", "Fulmineo"])
-        rpa_layout.addWidget(self.rpa_delay_combo, 0, 1)
-        
+        self.rpa_delay_combo.setMaximumWidth(250)
+        rpa_layout.addRow("Velocità Digitazione:", self.rpa_delay_combo)
+        rpa_layout_v.addLayout(rpa_layout)
+
         self.rpa_enter_cb = QCheckBox("Premi 'Invio' in automatico dopo aver digitato")
-        rpa_layout.addWidget(self.rpa_enter_cb, 1, 0, 1, 2)
-        rpa_group.setLayout(rpa_layout)
-        grid.addWidget(rpa_group, 1, 1)
+        rpa_layout_v.addWidget(self.rpa_enter_cb)
+        grid.addWidget(rpa_card, 1, 1)
 
         # --- Card 5: Integrazioni API ---
-        api_group = QGroupBox("🌐 Integrazioni e Servizi Esterni")
-        api_layout = QGridLayout()
-        api_layout.addWidget(QLabel("Spotify Client ID:"), 0, 0)
+        api_card, api_layout_v = self._create_card("🌐 Integrazioni e Servizi Esterni")
+        api_layout = QFormLayout()
         self.spotify_id_entry = QLineEdit()
         self.spotify_id_entry.setEchoMode(QLineEdit.EchoMode.Password)
-        api_layout.addWidget(self.spotify_id_entry, 0, 1)
-        
-        api_layout.addWidget(QLabel("Spotify Secret:"), 0, 2)
+        self.spotify_id_entry.setMaximumWidth(250)
+        api_layout.addRow("Spotify Client ID:", self.spotify_id_entry)
+
         self.spotify_secret_entry = QLineEdit()
         self.spotify_secret_entry.setEchoMode(QLineEdit.EchoMode.Password)
-        api_layout.addWidget(self.spotify_secret_entry, 0, 3)
-        
-        api_layout.addWidget(QLabel("ElevenLabs API Key:"), 1, 0)
+        self.spotify_secret_entry.setMaximumWidth(250)
+        api_layout.addRow("Spotify Secret:", self.spotify_secret_entry)
+
         self.eleven_key_entry = QLineEdit()
         self.eleven_key_entry.setEchoMode(QLineEdit.EchoMode.Password)
-        api_layout.addWidget(self.eleven_key_entry, 1, 1)
-        
-        api_layout.addWidget(QLabel("ElevenLabs Voice ID:"), 1, 2)
+        self.eleven_key_entry.setMaximumWidth(250)
+        api_layout.addRow("ElevenLabs API Key:", self.eleven_key_entry)
+
         self.eleven_voice_entry = QLineEdit()
-        api_layout.addWidget(self.eleven_voice_entry, 1, 3)
-        api_group.setLayout(api_layout)
-        grid.addWidget(api_group, 2, 0, 1, 2)
+        self.eleven_voice_entry.setMaximumWidth(250)
+        api_layout.addRow("ElevenLabs Voice ID:", self.eleven_voice_entry)
+        api_layout_v.addLayout(api_layout)
+        grid.addWidget(api_card, 2, 0, 1, 2)
 
         # --- Card 6: Sicurezza & Dati ---
-        sec_group = QGroupBox("🛡️ Sicurezza & Gestione Dati")
-        sec_layout = QGridLayout()
-        
+        sec_card, sec_layout_v = self._create_card("🛡️ Sicurezza & Gestione Dati")
         self.safe_mode_cb = QCheckBox("Safe Mode: Chiedi conferma vocale prima di eseguire comandi irreversibili")
-        sec_layout.addWidget(self.safe_mode_cb, 0, 0, 1, 3)
-        
-        sec_layout.addWidget(QLabel("Livello di Log:"), 1, 0)
+        sec_layout_v.addWidget(self.safe_mode_cb)
+
+        sec_layout = QFormLayout()
         self.log_combo = QComboBox()
         self.log_combo.addItems(["Debug", "Info", "Error"])
-        sec_layout.addWidget(self.log_combo, 1, 1)
-        
-        self.clear_cache_btn = QPushButton("🗑️ Svuota Cache e Memoria")
+        self.log_combo.setMaximumWidth(250)
+        sec_layout.addRow("Livello di Log:", self.log_combo)
+        sec_layout_v.addLayout(sec_layout)
+
+        self.clear_cache_btn = QPushButton("🗑️ Svuota Cache")
         self.clear_cache_btn.setStyleSheet("background-color: #ef4444; color: white; border: none; font-weight: bold; border-radius: 5px;")
         self.clear_cache_btn.clicked.connect(self.clear_assistant_cache)
-        sec_layout.addWidget(self.clear_cache_btn, 1, 2)
-        
-        sec_group.setLayout(sec_layout)
-        grid.addWidget(sec_group, 3, 0, 1, 2)
-        
+        self.clear_cache_btn.setMaximumWidth(150)
+        sec_layout_v.addWidget(self.clear_cache_btn)
+
+        grid.addWidget(sec_card, 3, 0, 1, 2)
+
         layout.addLayout(grid)
         layout.addSpacing(20)
-        
+
         save_btn = QPushButton("💾 Salva Configurazioni")
         save_btn.setFixedHeight(45)
+        save_btn.setMaximumWidth(300)
         save_btn.setStyleSheet("background-color: #38bdf8; color: #0f172a; font-weight: bold; border-radius: 5px;")
         save_btn.clicked.connect(self.save_settings)
-        layout.addWidget(save_btn)
-        
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_layout.addWidget(save_btn)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
         layout.addStretch()
         self.settings_screen.setWidget(content)
 
@@ -502,44 +632,41 @@ class AssistantGUI(QMainWindow):
         self.modes_screen.setFrameShape(QFrame.Shape.NoFrame)
         content = QWidget()
         layout = QVBoxLayout(content)
-        
+
         title = QLabel("Gestore Profili & Automazioni")
         title.setObjectName("section_title")
         layout.addWidget(title)
-        
+
         # --- Card 1: Profilo Attivo ---
-        active_group = QGroupBox("🌟 Profilo di Sistema Attivo")
-        active_layout = QGridLayout()
-        active_layout.addWidget(QLabel("Seleziona Profilo (applica subito):"), 0, 0)
+        active_card, active_layout_v = self._create_card("🌟 Profilo di Sistema Attivo")
+        active_layout = QFormLayout()
         self.profile_menu = QComboBox()
         self.profile_menu.addItems(["Nessuno", "Focus / Studio", "Gaming", "Notte / Relax"])
+        self.profile_menu.setMaximumWidth(250)
         self.profile_menu.currentTextChanged.connect(self.on_profile_selected)
-        active_layout.addWidget(self.profile_menu, 0, 1)
-        active_group.setLayout(active_layout)
-        layout.addWidget(active_group)
-        
+        active_layout.addRow("Seleziona Profilo (applica subito):", self.profile_menu)
+        active_layout_v.addLayout(active_layout)
+        layout.addWidget(active_card)
+
         grid = QGridLayout()
         grid.setSpacing(20)
-        
+
         # --- Card 2: Focus / Studio ---
-        focus_group = QGroupBox("📚 Profilo Focus / Studio")
-        focus_layout = QVBoxLayout()
+        focus_card, focus_layout_v = self._create_card("📚 Profilo Focus / Studio")
         self.focus_mute_tts_check = QCheckBox("Silenzia risposte vocali (TTS)")
         self.focus_close_apps_check = QCheckBox("Termina app distrattive all'avvio")
         self.focus_block_notifications_check = QCheckBox("Silenzia notifiche desktop")
         self.focus_pomodoro_check = QCheckBox("Avvia Timer Pomodoro (25min)")
         self.focus_lofi_check = QCheckBox("Riproduci Playlist Lo-Fi (Spotify)")
-        focus_layout.addWidget(self.focus_mute_tts_check)
-        focus_layout.addWidget(self.focus_close_apps_check)
-        focus_layout.addWidget(self.focus_block_notifications_check)
-        focus_layout.addWidget(self.focus_pomodoro_check)
-        focus_layout.addWidget(self.focus_lofi_check)
-        focus_group.setLayout(focus_layout)
-        grid.addWidget(focus_group, 0, 0)
-        
+        focus_layout_v.addWidget(self.focus_mute_tts_check)
+        focus_layout_v.addWidget(self.focus_close_apps_check)
+        focus_layout_v.addWidget(self.focus_block_notifications_check)
+        focus_layout_v.addWidget(self.focus_pomodoro_check)
+        focus_layout_v.addWidget(self.focus_lofi_check)
+        grid.addWidget(focus_card, 0, 0)
+
         # --- Card 3: Gaming ---
-        gaming_group = QGroupBox("🎮 Profilo Gaming")
-        gaming_layout = QVBoxLayout()
+        gaming_card, gaming_layout_v = self._create_card("🎮 Profilo Gaming")
         gv_layout = QHBoxLayout()
         gv_layout.addWidget(QLabel("Volume in gioco:"))
         self.gaming_volume_slider = QSlider(Qt.Orientation.Horizontal)
@@ -548,22 +675,20 @@ class AssistantGUI(QMainWindow):
         self.gaming_vol_pct_label.setFixedWidth(40)
         gv_layout.addWidget(self.gaming_volume_slider)
         gv_layout.addWidget(self.gaming_vol_pct_label)
-        gaming_layout.addLayout(gv_layout)
-        
+        gaming_layout_v.addLayout(gv_layout)
+
         self.gaming_open_launchers_check = QCheckBox("Avvia automaticamente launcher")
         self.gaming_optimize_ram_check = QCheckBox("Ottimizza RAM liberando cache")
         self.gaming_power_check = QCheckBox("Attiva Piano Prestazioni Eccellenti")
         self.gaming_kill_browsers_check = QCheckBox("Forza chiusura browser pesanti")
-        gaming_layout.addWidget(self.gaming_open_launchers_check)
-        gaming_layout.addWidget(self.gaming_optimize_ram_check)
-        gaming_layout.addWidget(self.gaming_power_check)
-        gaming_layout.addWidget(self.gaming_kill_browsers_check)
-        gaming_group.setLayout(gaming_layout)
-        grid.addWidget(gaming_group, 0, 1)
-        
+        gaming_layout_v.addWidget(self.gaming_open_launchers_check)
+        gaming_layout_v.addWidget(self.gaming_optimize_ram_check)
+        gaming_layout_v.addWidget(self.gaming_power_check)
+        gaming_layout_v.addWidget(self.gaming_kill_browsers_check)
+        grid.addWidget(gaming_card, 0, 1)
+
         # --- Card 4: Notte / Relax ---
-        night_group = QGroupBox("🌙 Profilo Notte / Relax")
-        night_layout = QVBoxLayout()
+        night_card, night_layout_v = self._create_card("🌙 Profilo Notte / Relax")
         nv_layout = QHBoxLayout()
         nv_layout.addWidget(QLabel("Volume Notturno:"))
         self.night_volume_slider = QSlider(Qt.Orientation.Horizontal)
@@ -572,8 +697,8 @@ class AssistantGUI(QMainWindow):
         self.night_vol_pct_label.setFixedWidth(40)
         nv_layout.addWidget(self.night_volume_slider)
         nv_layout.addWidget(self.night_vol_pct_label)
-        night_layout.addLayout(nv_layout)
-        
+        night_layout_v.addLayout(nv_layout)
+
         nb_layout = QHBoxLayout()
         nb_layout.addWidget(QLabel("Luminosità Schermo:"))
         self.night_bright_slider = QSlider(Qt.Orientation.Horizontal)
@@ -582,24 +707,22 @@ class AssistantGUI(QMainWindow):
         self.night_bright_pct_label.setFixedWidth(40)
         nb_layout.addWidget(self.night_bright_slider)
         nb_layout.addWidget(self.night_bright_pct_label)
-        night_layout.addLayout(nb_layout)
-        
+        night_layout_v.addLayout(nb_layout)
+
         self.night_blue_light_check = QCheckBox("Attiva Filtro Luce Blu (Windows)")
-        night_layout.addWidget(self.night_blue_light_check)
-        
+        night_layout_v.addWidget(self.night_blue_light_check)
+
         sl_layout = QHBoxLayout()
         sl_layout.addWidget(QLabel("Timer Auto-Spegnimento:"))
         self.night_sleep_timer = QComboBox()
         self.night_sleep_timer.addItems(["Mai", "30 min", "1 ora", "2 ore"])
+        self.night_sleep_timer.setMaximumWidth(150)
         sl_layout.addWidget(self.night_sleep_timer)
-        night_layout.addLayout(sl_layout)
-        
-        night_group.setLayout(night_layout)
-        grid.addWidget(night_group, 1, 0)
-        
+        night_layout_v.addLayout(sl_layout)
+        grid.addWidget(night_card, 1, 0)
+
         # --- Card 5: Standard / Quotidiano ---
-        std_group = QGroupBox("☀️ Profilo Standard / Sveglia")
-        std_layout = QVBoxLayout()
+        std_card, std_layout_v = self._create_card("☀️ Profilo Standard / Sveglia")
         av_layout = QHBoxLayout()
         av_layout.addWidget(QLabel("Volume Sveglia:"))
         self.alarm_volume_slider = QSlider(Qt.Orientation.Horizontal)
@@ -608,8 +731,8 @@ class AssistantGUI(QMainWindow):
         self.alarm_vol_pct_label.setFixedWidth(40)
         av_layout.addWidget(self.alarm_volume_slider)
         av_layout.addWidget(self.alarm_vol_pct_label)
-        std_layout.addLayout(av_layout)
-        
+        std_layout_v.addLayout(av_layout)
+
         sb_layout = QHBoxLayout()
         sb_layout.addWidget(QLabel("Luminosità Standard:"))
         self.std_bright_slider = QSlider(Qt.Orientation.Horizontal)
@@ -618,37 +741,42 @@ class AssistantGUI(QMainWindow):
         self.std_bright_pct_label.setFixedWidth(40)
         sb_layout.addWidget(self.std_bright_slider)
         sb_layout.addWidget(self.std_bright_pct_label)
-        std_layout.addLayout(sb_layout)
-        std_group.setLayout(std_layout)
-        grid.addWidget(std_group, 1, 1)
-        
+        std_layout_v.addLayout(sb_layout)
+        grid.addWidget(std_card, 1, 1)
+
         # --- Card 6: Trigger Automatici ---
-        trigger_group = QGroupBox("⚡ Trigger di Auto-Attivazione")
-        trigger_layout = QGridLayout()
-        trigger_layout.addWidget(QLabel("Attiva 'Notte' alle ore:"), 0, 0)
+        trigger_card, trigger_layout_v = self._create_card("⚡ Trigger di Auto-Attivazione")
+        trigger_layout = QFormLayout()
         self.trigger_time_night = QLineEdit()
         self.trigger_time_night.setPlaceholderText("Es. 23:00")
-        trigger_layout.addWidget(self.trigger_time_night, 0, 1)
-        
-        trigger_layout.addWidget(QLabel("Attiva 'Gaming' se apro l'app:"), 1, 0)
+        self.trigger_time_night.setMaximumWidth(150)
+        trigger_layout.addRow("Attiva 'Notte' alle ore:", self.trigger_time_night)
+
         self.trigger_app_gaming = QLineEdit()
         self.trigger_app_gaming.setPlaceholderText("Es. steam.exe")
-        trigger_layout.addWidget(self.trigger_app_gaming, 1, 1)
-        trigger_group.setLayout(trigger_layout)
-        grid.addWidget(trigger_group, 2, 0, 1, 2)
-        
+        self.trigger_app_gaming.setMaximumWidth(250)
+        trigger_layout.addRow("Attiva 'Gaming' se apro l'app:", self.trigger_app_gaming)
+        trigger_layout_v.addLayout(trigger_layout)
+        grid.addWidget(trigger_card, 2, 0, 1, 2)
+
         layout.addLayout(grid)
         layout.addSpacing(20)
-        
+
         save_btn = QPushButton("💾 Salva Configurazioni Profili")
         save_btn.setFixedHeight(45)
+        save_btn.setMaximumWidth(300)
         save_btn.setObjectName("save_btn")
         save_btn.clicked.connect(self.save_profile_settings)
-        layout.addWidget(save_btn)
-        
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_layout.addWidget(save_btn)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
         layout.addStretch()
         self.modes_screen.setWidget(content)
-        
+
         # Connessioni segnali per le label dei valori
         self.gaming_volume_slider.valueChanged.connect(self.on_gaming_volume_slider_move)
         self.night_volume_slider.valueChanged.connect(lambda v: self.night_vol_pct_label.setText(f"{v}%"))
@@ -657,31 +785,31 @@ class AssistantGUI(QMainWindow):
         self.std_bright_slider.valueChanged.connect(lambda v: self.std_bright_pct_label.setText(f"{v}%"))
 
     def _build_dashboard_screen(self):
-        
+
         self.dashboard_screen = QScrollArea()
         self.dashboard_screen.setWidgetResizable(True)
         self.dashboard_screen.setFrameShape(QFrame.Shape.NoFrame)
         content = QWidget()
         layout = QVBoxLayout(content)
-        
+
         title = QLabel("Telemetry & Hardware Dashboard")
         title.setObjectName("section_title")
         layout.addWidget(title)
-        
+
         # --- Donut Charts Grid (Dynamic) ---
         donut_group = QGroupBox("Utilizzo Risorse (Real-Time)")
         donut_layout = QGridLayout()
-        
+
         self.donuts = {} # Dizionario per tracciare i widget dinamici dei dischi
-        
+
         self.cpu_donut = DonutProgressWidget(color="#38bdf8", title="CPU")
         self.ram_donut = DonutProgressWidget(color="#10b981", title="RAM")
         donut_layout.addWidget(self.cpu_donut, 0, 0)
         donut_layout.addWidget(self.ram_donut, 0, 1)
-        
+
         col = 2
         row = 0
-        
+
         # Generazione Dinamica Dischi
         colors = ["#8b5cf6", "#f43f5e", "#f59e0b", "#ec4899", "#14b8a6"]
         color_idx = 0
@@ -691,21 +819,21 @@ class AssistantGUI(QMainWindow):
             drive_letter = partition.device.replace("\\", "")
             donut = DonutProgressWidget(color=colors[color_idx % len(colors)], title=f"Disco ({drive_letter})")
             self.donuts[partition.device] = donut
-            
+
             donut_layout.addWidget(donut, row, col)
             col += 1
             if col > 3:
                 col = 0
                 row += 1
             color_idx += 1
-                
+
         donut_group.setLayout(donut_layout)
         layout.addWidget(donut_group)
-        
+
         # --- Advanced Telemetry Grid ---
         info_grid = QGridLayout()
         info_grid.setSpacing(20)
-        
+
         # CPU & RAM Avanzate
         hw_group = QGroupBox("🧠 Dettagli Core & Memoria")
         hw_layout = QVBoxLayout()
@@ -717,7 +845,7 @@ class AssistantGUI(QMainWindow):
         hw_layout.addWidget(self.ram_detail_label)
         hw_group.setLayout(hw_layout)
         info_grid.addWidget(hw_group, 0, 0)
-        
+
         # GPU & Rete
         ext_group = QGroupBox("🎮 GPU & Rete")
         ext_layout = QVBoxLayout()
@@ -731,27 +859,28 @@ class AssistantGUI(QMainWindow):
         ext_layout.addWidget(self.net_up_label)
         ext_group.setLayout(ext_layout)
         info_grid.addWidget(ext_group, 0, 1)
-        
+
         layout.addLayout(info_grid)
         layout.addStretch()
-        
+
         self.last_net_io = None
         import time
         self.last_net_time = time.time()
-        
+
         # Avvia thread asincrono per la lettura CPU identica a Task Manager
         import threading
         import subprocess
         self.wmi_cpu_usage = 0
-        
-        self._wmi_poll_running = True
-        
+
+        self._wmi_poll_running = False
+        self._wmi_thread = None
+
         def poll_wmi_cpu():
             import time
             while self._wmi_poll_running:
                 try:
                     res = subprocess.run(
-                        ["wmic", "cpu", "get", "loadpercentage"], 
+                        ["wmic", "cpu", "get", "loadpercentage"],
                         capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW
                     )
                     lines = [x.strip() for x in res.stdout.strip().split('\n') if x.strip()]
@@ -760,30 +889,52 @@ class AssistantGUI(QMainWindow):
                 except Exception:
                     pass
                 time.sleep(1.5)
-                
-        threading.Thread(target=poll_wmi_cpu, daemon=True).start()
-        
+
+        # Il thread non parte piu' alla costruzione della GUI: veniva avviato
+        # sempre, anche senza mai aprire la Dashboard, e non veniva mai fermato.
+        self._avvia_poll_wmi = lambda: self._start_wmi_thread(poll_wmi_cpu)
+
         self.dashboard_screen.setWidget(content)
-        
+
         self.dashboard_timer = QTimer(self)
         self.dashboard_timer.timeout.connect(self._update_dashboard_stats)
+
+    def _start_wmi_thread(self, target):
+        """Avvia il polling CPU solo alla prima apertura della Dashboard."""
+        if self._wmi_thread is not None and self._wmi_thread.is_alive():
+            return
+        import threading
+        self._wmi_poll_running = True
+        self._wmi_thread = threading.Thread(target=target, daemon=True)
+        self._wmi_thread.start()
+
+    def shutdown(self):
+        """Ferma timer e thread di background. Chiamato in fase di uscita."""
+        self._wmi_poll_running = False
+        for nome in ("queue_timer", "pulse_timer", "chat_status_timer", "dashboard_timer"):
+            timer = getattr(self, nome, None)
+            if timer is not None:
+                try:
+                    timer.stop()
+                except Exception:
+                    pass
 
     def _update_dashboard_stats(self):
         # Lettura CPU da WMI (Stesso identico valore di Task Manager)
         self.cpu_donut.setValue(self.wmi_cpu_usage)
-        
+
         try:
             freq = psutil.cpu_freq()
             if freq:
                 self.cpu_freq_label.setText(f"Frequenza CPU: {freq.current:.0f} MHz (Max {freq.max:.0f} MHz)")
         except Exception:
             pass
-            
+
         # RAM
         ram = psutil.virtual_memory()
         self.ram_donut.setValue(int(ram.percent))
         self.ram_detail_label.setText(f"RAM: {ram.used / (1024**3):.1f} GB usati su {ram.total / (1024**3):.1f} GB")
-        
+
         # Dischi Multipli Dinamici
         for device, donut in self.donuts.items():
             try:
@@ -791,32 +942,33 @@ class AssistantGUI(QMainWindow):
                 donut.setValue(int(disk.percent))
             except Exception:
                 pass
-                
+
         # Traffico di Rete (Delta calculation)
         net_io = psutil.net_io_counters()
         current_time = time.time()
-        
+
         if self.last_net_io is not None:
             time_delta = current_time - self.last_net_time
             if time_delta > 0:
                 down_bytes = net_io.bytes_recv - self.last_net_io.bytes_recv
                 up_bytes = net_io.bytes_sent - self.last_net_io.bytes_sent
-                
+
                 down_mbps = (down_bytes * 8) / (1024 * 1024 * time_delta)
                 up_mbps = (up_bytes * 8) / (1024 * 1024 * time_delta)
-                
+
                 self.net_down_label.setText(f"Download: {down_mbps:.2f} Mbps")
                 self.net_up_label.setText(f"Upload: {up_mbps:.2f} Mbps")
-                
+
         self.last_net_io = net_io
         self.last_net_time = current_time
-        
+
         # GPU Telemetry (Nvidia-SMI nativo per evitare popup CMD)
         try:
             import subprocess
             res = subprocess.run(
                 ["nvidia-smi", "--query-gpu=name,utilization.gpu,temperature.gpu,memory.used,memory.total", "--format=csv,noheader"],
-                capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW
+                capture_output=True, text=True, timeout=2,
+                creationflags=subprocess.CREATE_NO_WINDOW
             )
             if res.returncode == 0 and res.stdout.strip():
                 parts = res.stdout.strip().split(", ")
@@ -834,12 +986,12 @@ class AssistantGUI(QMainWindow):
         self.instructions_screen.setFrameShape(QFrame.Shape.NoFrame)
         content = QWidget()
         layout = QVBoxLayout(content)
-        
+
         title = QLabel("Manuale dei Comandi")
         title.setObjectName("section_title")
         layout.addWidget(title)
         layout.addWidget(QLabel("Interagisci vocalmente dicendo 'OmniMind [comando]' o scrivendo nella chat:"))
-        
+
         commands_list = [
             {"title": "💬 Chiacchierata Generica", "synonyms": "Ciao OmniMind / Cerca su internet...", "desc": "Conversazione libera basata sul Cloud. Usa Gemini per rispondere."},
             {"title": "🎭 Cambio Profilo", "synonyms": "cambia profilo in [nome]", "desc": "Passa dal profilo Nessuno, a Focus o Gaming alterando il comportamento."},
@@ -851,7 +1003,7 @@ class AssistantGUI(QMainWindow):
             {"title": "🤖 [NUOVO] Automazioni RPA", "synonyms": "esegui automazione: [azione]", "desc": "L'IA prende il controllo di tastiera e finestre per eseguire task per te."},
             {"title": "📊 [NUOVO] Monitor PC & Killer", "synonyms": "come sta il PC? / chiudi [app]", "desc": "Legge le temperature GPU, CPU e RAM in tempo reale o termina app forzatamente."}
         ]
-        
+
         for cmd in commands_list:
             c = QFrame()
             c.setObjectName("card")
@@ -865,7 +1017,7 @@ class AssistantGUI(QMainWindow):
             dl.setStyleSheet("color: #94a3b8;")
             cl.addWidget(dl)
             layout.addWidget(c)
-            
+
         layout.addStretch()
         self.instructions_screen.setWidget(content)
 
@@ -875,11 +1027,98 @@ class AssistantGUI(QMainWindow):
         title = QLabel("Log di Sistema")
         title.setObjectName("section_title")
         layout.addWidget(title)
-        
+
         self.logs_textbox = QTextEdit()
         self.logs_textbox.setReadOnly(True)
         self.logs_textbox.setStyleSheet("font-family: Consolas; font-size: 11px;")
         layout.addWidget(self.logs_textbox, 1)
+
+    def _build_plugins_screen(self):
+        self.plugins_screen = QScrollArea()
+        self.plugins_screen.setWidgetResizable(True)
+        self.plugins_screen.setFrameShape(QFrame.Shape.NoFrame)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+
+        title = QLabel("Gestione Plugin")
+        title.setObjectName("section_title")
+        layout.addWidget(title)
+
+        open_folder_btn = QPushButton("📁 Apri Cartella Plugin")
+        open_folder_btn.setStyleSheet("background-color: #10b981; color: white; font-weight: bold; padding: 10px; border-radius: 5px;")
+        open_folder_btn.setMaximumWidth(250)
+        open_folder_btn.clicked.connect(self._open_plugins_folder)
+        layout.addWidget(open_folder_btn)
+
+        layout.addSpacing(10)
+
+        from pathlib import Path
+        plugins_dir = Path(__file__).parent / "plugins"
+
+        self.plugin_checkboxes = {}
+        disabled_plugins = self.config_data.get("disabled_plugins", [])
+
+        plugins_card, pg_layout = self._create_card("🔌 Plugin Disponibili")
+
+        from src.commands import _plugin_manager
+
+        if _plugin_manager.all_plugins:
+            for file_stem, plugin_inst in _plugin_manager.all_plugins.items():
+                row_layout = QHBoxLayout()
+
+                text_layout = QVBoxLayout()
+                lbl_name = QLabel(f"{plugin_inst.name} ({file_stem}.py)")
+                lbl_name.setStyleSheet("font-weight: bold; font-size: 14px;")
+
+                lbl_desc = QLabel(plugin_inst.description)
+                lbl_desc.setStyleSheet("color: #94a3b8; font-size: 11px;")
+                lbl_desc.setWordWrap(True)
+
+                text_layout.addWidget(lbl_name)
+                text_layout.addWidget(lbl_desc)
+                row_layout.addLayout(text_layout)
+
+                cb = QCheckBox("Attivo")
+                cb.setChecked(file_stem not in disabled_plugins)
+                cb.stateChanged.connect(lambda state, name=file_stem, chbox=cb: chbox.setText("Attivo" if state else "Disabilitato"))
+                self.plugin_checkboxes[file_stem] = cb
+                row_layout.addWidget(cb)
+
+                schema = plugin_inst.get_settings_schema()
+                if schema:
+                    set_btn = QPushButton("⚙️ Impostazioni")
+                    set_btn.setFixedSize(130, 30)
+                    set_btn.clicked.connect(lambda checked, p=plugin_inst: self._open_plugin_settings(p))
+                    row_layout.addWidget(set_btn)
+                else:
+                    empty_lbl = QLabel("")
+                    empty_lbl.setFixedSize(130, 30)
+                    row_layout.addWidget(empty_lbl)
+
+                pg_layout.addLayout(row_layout)
+
+                line = QFrame()
+                line.setFrameShape(QFrame.Shape.HLine)
+                line.setStyleSheet("color: #334155;")
+                pg_layout.addWidget(line)
+
+        layout.addWidget(plugins_card)
+
+        layout.addSpacing(20)
+        save_btn = QPushButton("💾 Salva e Applica Plugin")
+        save_btn.setFixedHeight(45)
+        save_btn.setMaximumWidth(300)
+        save_btn.setObjectName("save_btn")
+        save_btn.clicked.connect(self.save_plugins_settings)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_layout.addWidget(save_btn)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+        layout.addStretch()
+        self.plugins_screen.setWidget(content)
 
     def _build_history_screen(self):
         self.history_screen = QWidget()
@@ -887,7 +1126,7 @@ class AssistantGUI(QMainWindow):
         title = QLabel("Cronologia Vecchia")
         title.setObjectName("section_title")
         layout.addWidget(title)
-        
+
         self.history_textbox = QTextEdit()
         self.history_textbox.setReadOnly(True)
         layout.addWidget(self.history_textbox, 1)
@@ -898,18 +1137,18 @@ class AssistantGUI(QMainWindow):
         self.sidebar_anim = QPropertyAnimation(self.sidebar_frame, b"maximumWidth")
         self.sidebar_anim.setDuration(250)
         self.sidebar_anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
-        
+
         if self.sidebar_collapsed:
             target_width = 220
             self._set_sidebar_text_mode(False)
         else:
             target_width = 70
             self._set_sidebar_text_mode(True)
-            
+
         self.sidebar_anim.setStartValue(self.sidebar_frame.width())
         self.sidebar_anim.setEndValue(target_width)
         self.sidebar_anim.start()
-        
+
         # Anche il minimumWidth deve seguire per forzare il layout
         self.sidebar_anim2 = QPropertyAnimation(self.sidebar_frame, b"minimumWidth")
         self.sidebar_anim2.setDuration(250)
@@ -917,7 +1156,7 @@ class AssistantGUI(QMainWindow):
         self.sidebar_anim2.setStartValue(self.sidebar_frame.width())
         self.sidebar_anim2.setEndValue(target_width)
         self.sidebar_anim2.start()
-        
+
         self.sidebar_collapsed = not self.sidebar_collapsed
 
     def _set_sidebar_text_mode(self, collapsed):
@@ -941,12 +1180,13 @@ class AssistantGUI(QMainWindow):
         self.content_container.setCurrentWidget(self.screens[screen_name])
         for btn, text, name in self.nav_btns:
             btn.setChecked(name == screen_name)
-            
+
         if screen_name == "history":
             self.load_history_items_gui()
-            
+
         if screen_name == "dashboard":
             if not self.dashboard_timer.isActive():
+                self._avvia_poll_wmi()
                 self.dashboard_timer.start(2000)
                 self._update_dashboard_stats()
         else:
@@ -972,21 +1212,21 @@ class AssistantGUI(QMainWindow):
         self.eleven_voice_entry.setText(self.config_data.get("elevenlabs_voice_id", ""))
         self.safe_mode_cb.setChecked(self.config_data.get("safe_mode_confirm", False))
         self.log_combo.setCurrentText(self.config_data.get("log_level", "Info"))
-        
+
         # --- Profili / Modalità ---
         self.focus_mute_tts_check.setChecked(self.config_data.get("focus_mute_tts", True))
         self.focus_close_apps_check.setChecked(self.config_data.get("focus_close_apps", True))
         self.focus_block_notifications_check.setChecked(self.config_data.get("focus_block_notifications", False))
-        
+
         gvol = float(self.config_data.get("gaming_volume", 0.30))
         self.gaming_volume_slider.setValue(int(gvol * 100))
         self.gaming_open_launchers_check.setChecked(self.config_data.get("gaming_open_launchers", True))
         self.gaming_optimize_ram_check.setChecked(self.config_data.get("gaming_optimize_ram", True))
-        
+
         nvol = float(self.config_data.get("night_volume", 0.15))
         self.night_volume_slider.setValue(int(nvol * 100))
         self.night_bright_slider.setValue(int(self.config_data.get("night_brightness", 15)))
-        
+
         avol = float(self.config_data.get("alarm_volume", 0.50))
         self.alarm_volume_slider.setValue(int(avol * 100))
         self.std_bright_slider.setValue(int(self.config_data.get("std_brightness", 80)))
@@ -998,7 +1238,11 @@ class AssistantGUI(QMainWindow):
         self.night_sleep_timer.setCurrentText(self.config_data.get("night_sleep_timer", "Mai"))
         self.trigger_time_night.setText(self.config_data.get("trigger_time_night", ""))
         self.trigger_app_gaming.setText(self.config_data.get("trigger_app_gaming", ""))
-        
+
+        # blockSignals: currentTextChanged e' collegato a on_profile_selected,
+        # che esegue azioni di sistema reali (apre Steam, cambia volume e piano
+        # energetico). Senza questo, il solo avvio dell'app le rieseguiva.
+        self.profile_menu.blockSignals(True)
         active_prof = self.config_data.get("active_profile", "Nessuno")
         if active_prof == "Focus":
             self.profile_menu.setCurrentText("Focus / Studio")
@@ -1008,21 +1252,10 @@ class AssistantGUI(QMainWindow):
             self.profile_menu.setCurrentText("Notte / Relax")
         else:
             self.profile_menu.setCurrentText("Nessuno")
-
-    def on_volume_slider_move(self, value):
-        self.vol_percent_label.setText(f"{value}%")
-
-    def on_alarm_volume_slider_move(self, value):
-        self.alarm_vol_percent_label.setText(f"{value}%")
+        self.profile_menu.blockSignals(False)
 
     def on_gaming_volume_slider_move(self, value):
         self.gaming_vol_pct_label.setText(f"{value}%")
-
-    def on_tts_rate_slider_move(self, value):
-        self.tts_rate_value_label.setText(f"{value:+d}%")
-
-    def on_tts_pitch_slider_move(self, value):
-        self.tts_pitch_value_label.setText(f"{value:+d}Hz")
 
     def save_settings(self):
         self.config_data["gemini_api_key"] = self.key_entry.text().strip()
@@ -1043,11 +1276,11 @@ class AssistantGUI(QMainWindow):
         self.config_data["elevenlabs_voice_id"] = self.eleven_voice_entry.text().strip()
         self.config_data["safe_mode_confirm"] = self.safe_mode_cb.isChecked()
         self.config_data["log_level"] = self.log_combo.currentText()
-        
+
         save_config(self.config_data)
         if hasattr(self, 'on_settings_saved') and self.on_settings_saved:
             self.on_settings_saved(self.config_data)  # Passa il dizionario!
-            
+
         self._toggle_windows_startup(self.windows_start_cb.isChecked())
         self._apply_theme()  # Applica istantaneamente il tema
         self.show_notification("Impostazioni salvate con successo.")
@@ -1056,14 +1289,14 @@ class AssistantGUI(QMainWindow):
         self.config_data["focus_mute_tts"] = self.focus_mute_tts_check.isChecked()
         self.config_data["focus_close_apps"] = self.focus_close_apps_check.isChecked()
         self.config_data["focus_block_notifications"] = self.focus_block_notifications_check.isChecked()
-        
+
         self.config_data["gaming_volume"] = self.gaming_volume_slider.value() / 100.0
         self.config_data["gaming_open_launchers"] = self.gaming_open_launchers_check.isChecked()
         self.config_data["gaming_optimize_ram"] = self.gaming_optimize_ram_check.isChecked()
-        
+
         self.config_data["night_volume"] = self.night_volume_slider.value() / 100.0
         self.config_data["night_brightness"] = self.night_bright_slider.value()
-        
+
         self.config_data["alarm_volume"] = self.alarm_volume_slider.value() / 100.0
         self.config_data["std_brightness"] = self.std_bright_slider.value()
         self.config_data["focus_pomodoro"] = self.focus_pomodoro_check.isChecked()
@@ -1074,24 +1307,30 @@ class AssistantGUI(QMainWindow):
         self.config_data["night_sleep_timer"] = self.night_sleep_timer.currentText()
         self.config_data["trigger_time_night"] = self.trigger_time_night.text().strip()
         self.config_data["trigger_app_gaming"] = self.trigger_app_gaming.text().strip()
-        
+
         save_config(self.config_data)
         if hasattr(self, 'on_settings_saved') and self.on_settings_saved:
             self.on_settings_saved(self.config_data)
-            
+
         self.show_notification("Configurazione Profili salvata con successo!")
 
     def on_profile_selected(self, selected_profile):
         from src.commands import attiva_profilo, disattiva_profili
-        if selected_profile == "Nessuno":
-            success, chat, voice = disattiva_profili()
-        elif selected_profile == "Focus / Studio":
-            success, chat, voice = attiva_profilo("focus")
-        elif selected_profile == "Gaming":
-            success, chat, voice = attiva_profilo("gaming")
-        elif selected_profile == "Notte / Relax":
-            success, chat, voice = attiva_profilo("notte")
-            
+        profili = {
+            "Nessuno": None,
+            "Focus / Studio": "focus",
+            "Gaming": "gaming",
+            "Notte / Relax": "notte",
+        }
+        if selected_profile not in profili:
+            # Senza questa guardia, un testo non previsto lasciava `chat`
+            # non inizializzata e la riga successiva sollevava UnboundLocalError.
+            logger.warning(f"Profilo non riconosciuto dal menu: {selected_profile!r}")
+            return
+
+        nome = profili[selected_profile]
+        success, chat, voice = disattiva_profili() if nome is None else attiva_profilo(nome)
+
         self.add_chat_log_entry("OmniMind", chat)
         self.config_data = load_config()
         self._populate_settings_fields()
@@ -1164,7 +1403,7 @@ class AssistantGUI(QMainWindow):
         }
         color, text = state_config.get(state, ("#95a5a6", "Stato sconosciuto"))
         self.status_circle.set_color(color)
-        
+
         if not self.sidebar_collapsed:
             self.status_label.setText(text)
 
@@ -1197,7 +1436,7 @@ class AssistantGUI(QMainWindow):
         self._chat_status_dots_count = (self._chat_status_dots_count % 3) + 1
         dots = "." * self._chat_status_dots_count
         ww = self.config_data.get("wake_word", "omnimind")
-        
+
         base = ""
         if self._current_state == "listening": base = f"In ascolto... di' '{ww}'"
         elif self._current_state == "recording": base = "Ti ascolto... parla ora"
@@ -1205,7 +1444,7 @@ class AssistantGUI(QMainWindow):
         elif self._current_state == "gemini_thinking": base = "Elaborazione API Gemini"
         elif self._current_state == "speaking": base = "OmniMind sta parlando"
         elif self._current_state == "downloading": base = "Download in corso"
-        
+
         self.chat_status_label.setText(f"{base}{dots}")
 
     def send_message(self):
@@ -1224,7 +1463,7 @@ class AssistantGUI(QMainWindow):
         elif sender == "OmniMind":
             # Parsing del Markdown con estensioni per codice e tabelle
             md_html = markdown.markdown(text, extensions=['fenced_code', 'tables', 'nl2br'])
-            
+
             # CSS basilare per stilizzare codice, citazioni e tabelle in dark mode
             styled_html = f"""
             <style>
@@ -1240,7 +1479,7 @@ class AssistantGUI(QMainWindow):
             """
             # Rendering istantaneo senza typewriter
             self.chat_log.append(styled_html)
-            
+
             # Scorri automaticamente verso il basso
             self.chat_log.verticalScrollBar().setValue(self.chat_log.verticalScrollBar().maximum())
         else:
@@ -1257,9 +1496,10 @@ class AssistantGUI(QMainWindow):
             return
         self._processing_typewriter = True
         sender, text = self._typewriter_queue.pop(0)
-        
+
         if sender == "[Sistema]":
-            self.chat_log.append(f"<i style='color:#64748b;'>[Sistema] {text}</i><br>")
+            import html
+            self.chat_log.append(f"<i style='color:#64748b;'>[Sistema] {html.escape(text)}</i><br>")
             self._processing_typewriter = False
             QTimer.singleShot(10, self._process_typewriter_queue)
         else:
@@ -1274,13 +1514,13 @@ class AssistantGUI(QMainWindow):
             cursor = self.chat_log.textCursor()
             cursor.movePosition(QTextCursor.MoveOperation.End)
             self.chat_log.setTextCursor(cursor)
-            
+
             char = text[char_index]
             if char == '\n':
                 self.chat_log.insertHtml("<br>")
             else:
                 self.chat_log.insertPlainText(char)
-                
+
             self.chat_log.verticalScrollBar().setValue(self.chat_log.verticalScrollBar().maximum())
             QTimer.singleShot(15, lambda: self._typewriter_insert(text, char_index + 1))
         else:
@@ -1295,9 +1535,13 @@ class AssistantGUI(QMainWindow):
 
     def load_history_items_gui(self):
         self.history_textbox.clear()
+        import html
         from src.database import get_last_chat_messages
         history = get_last_chat_messages(100)
         for sender, msg in history:
+            # QTextEdit.append interpreta la stringa come rich text: senza
+            # escape un messaggio contenente <div> corrompeva la cronologia.
+            msg = html.escape(msg)
             if sender == "Utente":
                 self.history_textbox.append(f"<b style='color:#60a5fa;'>Tu:</b> <span style='color:#f8fafc;'>{msg}</span><br>")
             elif sender == "OmniMind":
@@ -1344,42 +1588,145 @@ class AssistantGUI(QMainWindow):
         except Exception as e:
             self.show_notification(f"Errore durante lo svuotamento: {e}")
 
+    def _open_plugins_folder(self):
+        import os
+        import subprocess
+        from pathlib import Path
+        plugins_dir = Path(__file__).parent / "plugins"
+        plugins_dir.mkdir(exist_ok=True)
+        if os.name == 'nt':
+            subprocess.Popen(f'explorer "{plugins_dir}"')
+
+    def save_plugins_settings(self):
+        disabled = []
+        for name, cb in self.plugin_checkboxes.items():
+            if not cb.isChecked():
+                disabled.append(name)
+
+        # Merge sullo stato corrente su disco invece di riscrivere lo snapshot
+        # caricato all'avvio: altrimenti questa schermata sovrascriveva anche
+        # chiavi modificate nel frattempo da altre parti del programma.
+        self.config_data = load_config()
+        self.config_data["disabled_plugins"] = disabled
+        save_config(self.config_data)
+
+        from src.commands import _plugin_manager
+        _plugin_manager.load_plugins()
+        self.add_system_message("Impostazioni Plugin salvate. I plugin sono stati ricaricati.")
+
+    def _open_plugin_settings(self, plugin_inst):
+        """
+        Dialogo delle impostazioni di un plugin.
+
+        get_settings_schema() ritorna una LISTA di dizionari (vedi
+        OmniMindPlugin): trattarla come un dizionario con .items() sollevava
+        AttributeError e la finestra non si apriva mai.
+        """
+        schema = plugin_inst.get_settings_schema()
+        if not schema:
+            return
+
+        from PyQt6.QtWidgets import QDialog, QFormLayout, QDialogButtonBox, QSpinBox
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Impostazioni: {plugin_inst.name}")
+        dialog.setMinimumWidth(420)
+
+        layout = QVBoxLayout(dialog)
+        form = QFormLayout()
+
+        correnti = plugin_inst.get_settings()
+        campi = {}
+
+        for voce in schema:
+            chiave = voce["key"]
+            etichetta = voce.get("label", chiave)
+            tipo = voce.get("type", "str")
+            valore = correnti.get(chiave, voce.get("default"))
+
+            if tipo == "bool":
+                widget = QCheckBox()
+                widget.setChecked(bool(valore))
+            elif tipo == "int":
+                widget = QSpinBox()
+                widget.setRange(int(voce.get("min", 0)), int(voce.get("max", 10000)))
+                try:
+                    widget.setValue(int(valore))
+                except (TypeError, ValueError):
+                    widget.setValue(0)
+            else:
+                widget = QLineEdit()
+                widget.setText("" if valore is None else str(valore))
+
+            campi[chiave] = (widget, tipo)
+            form.addRow(f"{etichetta}:", widget)
+
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        nuove = {}
+        for chiave, (widget, tipo) in campi.items():
+            if tipo == "bool":
+                nuove[chiave] = widget.isChecked()
+            elif tipo == "int":
+                nuove[chiave] = widget.value()
+            else:
+                nuove[chiave] = widget.text().strip()
+
+        # Delegato al plugin: usa settings_key() come chiave, la stessa che
+        # get_settings() legge. La GUI scriveva invece sotto il nome del MODULO,
+        # quindi il plugin non ritrovava mai i valori salvati.
+        plugin_inst.save_settings(nuove)
+        self.config_data = load_config()
+        self.add_system_message(f"Impostazioni per {plugin_inst.name} salvate correttamente.")
+
+
 class NotificationOverlay(QWidget):
     def __init__(self, parent, text, duration_sec=7):
         super().__init__()
         self.duration_sec = duration_sec
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        
+        # close() su un QWidget senza questo attributo si limita a nasconderlo:
+        # ogni notifica restava in memoria per tutta la sessione.
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+
         layout = QVBoxLayout(self)
         frame = QFrame()
         frame.setStyleSheet("QFrame { background-color: rgba(30, 41, 59, 220); border: 2px solid #38bdf8; border-radius: 10px; }")
         fl = QVBoxLayout(frame)
-        
+
         title = QLabel("🔔 OMNIMIND ALLERTA")
         title.setStyleSheet("color: #38bdf8; font-weight: bold; border: none; background: transparent;")
         fl.addWidget(title)
-        
+
         msg = QLabel(text)
         msg.setStyleSheet("color: white; border: none; background: transparent;")
         fl.addWidget(msg)
-        
+
         layout.addWidget(frame)
-        
+
         self.resize(300, 130)
         # Posizione in basso a destra
         screen = parent.screen().geometry()
         self.move(screen.width() - 325, screen.height() - 190)
-        
+
         self.setWindowOpacity(0.0)
         self.show()
-        
+
         self.anim = QPropertyAnimation(self, b"windowOpacity")
         self.anim.setDuration(500)
         self.anim.setStartValue(0.0)
         self.anim.setEndValue(0.88)
         self.anim.start()
-        
+
         QTimer.singleShot(duration_sec * 1000, self.fade_out)
 
     def fade_out(self):
@@ -1394,10 +1741,11 @@ class ScreenFlashOverlay(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.setStyleSheet("background-color: white;")
         self.setWindowOpacity(0.5)
         self.showFullScreen()
-        
+
         self.anim = QPropertyAnimation(self, b"windowOpacity")
         self.anim.setDuration(300)
         self.anim.setStartValue(0.5)

@@ -18,14 +18,14 @@ def generate_alert_wav() -> bytes:
     sample_rate = 44100
     duration = 5.0
     frequency = 480.0  # Frequenza più bassa e calda (480Hz)
-    
+
     buf = io.BytesIO()
     try:
         with wave.open(buf, 'wb') as wav:
             wav.setnchannels(1)
             wav.setsampwidth(2)
             wav.setframerate(sample_rate)
-            
+
             num_samples = int(sample_rate * duration)
             for i in range(num_samples):
                 t = float(i) / sample_rate
@@ -33,7 +33,7 @@ def generate_alert_wav() -> bytes:
                 pulse = 1.0 if (int(t * 3.33) % 2 == 0) else 0.0
                 # Fade-in lineare nei primi 4 secondi
                 fade = min(1.0, t / 4.0)
-                
+
                 value = int(25000.0 * math.sin(2.0 * math.pi * frequency * t) * pulse * fade)
                 wav.writeframesraw(struct.pack('<h', value))
         return buf.getvalue()
@@ -53,7 +53,7 @@ class TimeManager:
         self.lock = threading.Lock()
         self.running = True
         self.sound = None
-        
+
         # Inizializza pygame.mixer
         try:
             import pygame
@@ -66,7 +66,7 @@ class TimeManager:
                 logger.info("Audio d'allarme pygame.mixer inizializzato con successo in memoria.")
         except Exception as e:
             logger.warning(f"pygame.mixer non disponibile o errore inizializzazione. Fallback su winsound: {e}")
-            
+
         # Avvia il thread di monitoraggio
         self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self.monitor_thread.start()
@@ -83,7 +83,7 @@ class TimeManager:
                 "total": seconds
             })
         logger.info(f"Timer '{label}' impostato per {seconds} secondi.")
-        
+
         # Invia messaggio di conferma immediato
         hours = seconds // 3600
         minutes = (seconds % 3600) // 60
@@ -93,7 +93,7 @@ class TimeManager:
         if minutes > 0: parts.append(f"{minutes} minuti")
         if secs > 0 or not parts: parts.append(f"{secs} secondi")
         duration_str = ", ".join(parts)
-        
+
         self.gui_queue.put(("message", ("OmniMind", f"⏰ **Timer Impostato!**\n- Evento: `{label}`\n- Durata: {duration_str}")))
 
     def add_alarm(self, time_str: str, label: str = "Sveglia"):
@@ -104,7 +104,11 @@ class TimeManager:
                 "id": alarm_id,
                 "time_str": time_str,
                 "label": label,
-                "triggered": False
+                "triggered": False,
+                # Istante di creazione: senza di esso una sveglia impostata per
+                # un orario appena passato rientrava nella finestra di 5 minuti
+                # e suonava immediatamente.
+                "created_at": datetime.datetime.now()
             })
         logger.info(f"Sveglia '{label}' impostata per le {time_str}.")
         self.gui_queue.put(("message", ("OmniMind", f"⏰ **Sveglia Impostata!**\n- Evento: `{label}`\n- Orario: {time_str}")))
@@ -118,30 +122,30 @@ class TimeManager:
                     config = load_config()
                     alarm_vol = float(config.get("alarm_volume", 0.50))
                     self.sound.set_volume(alarm_vol)
-                    
+
                     # Riproduce l'allarme 2 volte consecutive
                     self.sound.play(loops=1)
                     return
             except Exception as e:
                 logger.warning(f"Impossibile riprodurre con pygame: {e}. Tento winsound.")
-            
+
             try:
                 import winsound
                 # Utilizza l'allarme di sistema asincrono nativo di Windows
                 winsound.PlaySound("SystemExclamation", winsound.SND_ALIAS | winsound.SND_ASYNC)
             except Exception as e:
                 logger.error(f"Errore nella riproduzione con winsound: {e}")
-                
+
         threading.Thread(target=play, daemon=True).start()
 
     def _monitor_loop(self):
         """Loop di monitoraggio eseguito ogni secondo in background."""
         while self.running:
             time.sleep(1)
-            
+
             now_dt = datetime.datetime.now()
             current_time_str = now_dt.strftime("%H:%M")
-            
+
             # Gestione dei Timer
             expired_timers = []
             with self.lock:
@@ -149,17 +153,17 @@ class TimeManager:
                     t["seconds_left"] -= 1
                     if t["seconds_left"] <= 0:
                         expired_timers.append(t)
-                
+
                 # Rimuove i timer scaduti
                 self.timers = [t for t in self.timers if t["seconds_left"] > 0]
-                
+
             # Notifica i timer scaduti
             for t in expired_timers:
                 logger.info(f"Timer '{t['label']}' scaduto!")
                 self.gui_queue.put(("message", ("OmniMind", f"🔔 **TIMER SCADUTO!**\nIl timer per `{t['label']}` ({t['total']} secondi) è terminato!")))
                 self.gui_queue.put(("show_overlay", (f"Timer Scaduto!\n{t['label']}", 7)))
                 self._play_alert_sound()
-                
+
             # Gestione delle Sveglie
             triggered_alarms = []
             with self.lock:
@@ -169,17 +173,25 @@ class TimeManager:
                         alarm_minutes = h * 60 + m
                     except Exception:
                         continue
-                        
+
                     now_minutes = now_dt.hour * 60 + now_dt.minute
                     diff = (now_minutes - alarm_minutes) % 1440
-                    
+
+                    # La sveglia puo' scattare solo per un orario successivo al
+                    # momento in cui e' stata creata.
+                    creata = a.get("created_at")
+                    if creata is not None:
+                        creata_minuti = creata.hour * 60 + creata.minute
+                        if (creata_minuti - alarm_minutes) % 1440 <= 5:
+                            continue
+
                     if not a["triggered"] and diff <= 5:
                         a["triggered"] = True
                         triggered_alarms.append(a)
-                        
+
                 # Rimuove le sveglie attivate
                 self.alarms = [a for a in self.alarms if not a["triggered"]]
-                
+
             # Notifica le sveglie suonate
             for a in triggered_alarms:
                 logger.info(f"Sveglia '{a['label']}' attivata!")
