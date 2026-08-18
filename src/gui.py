@@ -666,11 +666,24 @@ class AssistantGUI(QMainWindow):
         self.hotkey_entry.setPlaceholderText("vuoto = disattivata")
         sec_layout.addRow("Hotkey analisi appunti:", self.hotkey_entry)
 
+        pulsanti_dati = QHBoxLayout()
+
         self.clear_cache_btn = QPushButton("🗑️ Svuota Cache")
         self.clear_cache_btn.setStyleSheet("background-color: #ef4444; color: white; border: none; font-weight: bold; border-radius: 5px;")
         self.clear_cache_btn.clicked.connect(self.clear_assistant_cache)
         self.clear_cache_btn.setMaximumWidth(150)
-        sec_layout_v.addWidget(self.clear_cache_btn)
+        pulsanti_dati.addWidget(self.clear_cache_btn)
+
+        # La cronologia poteva solo crescere: nessuna funzione permetteva
+        # all'utente di cancellarla, nemmeno dopo averci salvato una password.
+        self.clear_history_btn = QPushButton("🧾 Cancella cronologia")
+        self.clear_history_btn.setStyleSheet("background-color: #ef4444; color: white; border: none; font-weight: bold; border-radius: 5px;")
+        self.clear_history_btn.clicked.connect(self.clear_chat_history_gui)
+        self.clear_history_btn.setMaximumWidth(200)
+        pulsanti_dati.addWidget(self.clear_history_btn)
+        pulsanti_dati.addStretch()
+
+        sec_layout_v.addLayout(pulsanti_dati)
 
         grid.addWidget(sec_card, 3, 0, 1, 2)
 
@@ -1708,6 +1721,28 @@ class AssistantGUI(QMainWindow):
             self.show_notification("Cache e Memoria temporanea svuotate con successo!")
         except Exception as e:
             self.show_notification(f"Errore durante lo svuotamento: {e}")
+
+    def clear_chat_history_gui(self):
+        """Svuota la cronologia su disco e la chat a schermo, previa conferma."""
+        from PyQt6.QtWidgets import QMessageBox
+        from src.database import clear_chat_history
+
+        risposta = QMessageBox.question(
+            self, "Cancellare la cronologia?",
+            "Verranno eliminati definitivamente tutti i messaggi salvati.\n"
+            "L'operazione non e' reversibile. Procedo?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+
+        if risposta != QMessageBox.StandardButton.Yes:
+            return
+
+        if clear_chat_history():
+            self.chat_log.clear()
+            self.history_textbox.clear()
+            self.show_notification("Cronologia cancellata.")
+        else:
+            self.show_notification("Non sono riuscito a cancellare la cronologia.")
 
     def _open_plugins_folder(self):
         import os

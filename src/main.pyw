@@ -23,7 +23,7 @@ from src.gemini_client import GeminiClient
 from src.gui import AssistantGUI
 from src.tray import TrayIconManager
 from src.time_manager import TimeManager
-from src.database import init_db, save_chat_message, get_last_chat_messages
+from src.database import init_db, save_chat_message, get_last_chat_messages, purge_chat_history
 from src import safety
 
 # Configurazione del Logger principale
@@ -132,6 +132,10 @@ class OmniMindAssistant:
 
         # Inizializza il database locale SQLite
         init_db()
+        # Retention: senza questa chiamata chat_history cresceva senza limite.
+        rimossi = purge_chat_history()
+        if rimossi:
+            logger.info(f"Cronologia ripulita: rimossi {rimossi} messaggi oltre la soglia.")
 
         # Registra QueueLoggingHandler
         queue_formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")

@@ -69,13 +69,24 @@ class GeminiClient:
         return genai.types.GenerationConfig(temperature=max(0.0, min(2.0, temperatura)))
 
     def _storico_troncato(self) -> list:
-        """Ritorna gli ultimi MAX_TURNI_STORICO scambi della conversazione."""
+        """
+        Ultimi MAX_TURNI_STORICO scambi della conversazione.
+
+        start_chat() richiede che la cronologia inizi con un turno dell'utente:
+        tagliando a lunghezza fissa si puo' finire con una risposta del modello
+        in prima posizione, e l'SDK rifiuta la richiesta.
+        """
         if not self.chat:
             return []
         try:
-            return list(self.chat.history)[-(MAX_TURNI_STORICO * 2):]
+            storico = list(self.chat.history)
         except Exception:
             return []
+
+        finestra = storico[-(MAX_TURNI_STORICO * 2):]
+        while finestra and getattr(finestra[0], "role", "user") != "user":
+            finestra.pop(0)
+        return finestra
 
     def aggiorna_credenziali(self, config: dict):
         """
