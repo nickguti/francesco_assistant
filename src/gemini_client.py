@@ -233,8 +233,13 @@ class GeminiClient:
 
         try:
             from src.config import TEMP_DIR
-            logger.info("Cattura dello screenshot in corso per visione multimodale...")
-            screenshot = ImageGrab.grab(all_screens=True)
+            # all_screens=False per default: catturare l'intero desktop di tutti
+            # i monitor significa inviare a un servizio esterno anche cio' che
+            # sta su schermi che l'utente non aveva in mente (gestore password,
+            # home banking, messaggi privati).
+            tutti_schermi = bool(load_config().get("vision_tutti_schermi", False))
+            logger.info(f"Cattura schermo (tutti gli schermi: {tutti_schermi})...")
+            screenshot = ImageGrab.grab(all_screens=tutti_schermi)
             capture_path = os.path.join(TEMP_DIR, "vision_capture.png")
             screenshot.save(capture_path)
 

@@ -7,6 +7,10 @@ import wave
 import math
 import struct
 from src.config import load_config
+from src.database import (
+    salva_timer, rimuovi_timer, leggi_timers,
+    salva_sveglia, rimuovi_sveglia, leggi_sveglie,
+)
 
 logger = logging.getLogger("OmniMindTimeManager")
 
@@ -67,21 +71,50 @@ class TimeManager:
         except Exception as e:
             logger.warning(f"pygame.mixer non disponibile o errore inizializzazione. Fallback su winsound: {e}")
 
+        # Ripristina quanto era stato impostato prima della chiusura
+        self._ripristina_da_db()
+
         # Avvia il thread di monitoraggio
         self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self.monitor_thread.start()
         logger.info("Thread di monitoraggio TimeManager avviato correttamente.")
 
+    def _ripristina_da_db(self):
+        """Ricarica timer e sveglie salvati: prima si perdevano ad ogni chiusura."""
+        adesso = datetime.datetime.now()
+        try:
+            for tid, label, deadline_iso, total in leggi_timers():
+                scadenza = datetime.datetime.fromisoformat(deadline_iso)
+                if scadenza <= adesso:
+                    rimuovi_timer(tid)      # gia' scaduto mentre l'app era chiusa
+                    continue
+                self.timers.append({"id": tid, "label": label,
+                                    "deadline": scadenza, "total": total})
+
+            for aid, time_str, label, created_iso in leggi_sveglie():
+                self.alarms.append({"id": aid, "time_str": time_str, "label": label,
+                                    "triggered": False,
+                                    "created_at": datetime.datetime.fromisoformat(created_iso)})
+
+            if self.timers or self.alarms:
+                logger.info(f"Ripristinati {len(self.timers)} timer e {len(self.alarms)} sveglie dal database.")
+        except Exception as e:
+            logger.error(f"Errore nel ripristino di timer e sveglie: {e}")
+
     def add_timer(self, seconds: int, label: str = "Timer"):
         """Aggiunge un nuovo timer simultaneo."""
         timer_id = f"timer_{int(time.time())}_{seconds}"
+        # Scadenza assoluta invece di un contatore decrementato ogni secondo:
+        # resiste al riavvio e non accumula deriva se il thread viene ritardato.
+        scadenza = datetime.datetime.now() + datetime.timedelta(seconds=seconds)
         with self.lock:
             self.timers.append({
                 "id": timer_id,
-                "seconds_left": seconds,
+                "deadline": scadenza,
                 "label": label,
                 "total": seconds
             })
+        salva_timer(timer_id, label, scadenza.isoformat(), seconds)
         logger.info(f"Timer '{label}' impostato per {seconds} secondi.")
 
         # Invia messaggio di conferma immediato
@@ -99,6 +132,7 @@ class TimeManager:
     def add_alarm(self, time_str: str, label: str = "Sveglia"):
         """Aggiunge una nuova sveglia ad un orario specifico (HH:MM)."""
         alarm_id = f"alarm_{int(time.time())}_{time_str.replace(':', '_')}"
+        creata = datetime.datetime.now()
         with self.lock:
             self.alarms.append({
                 "id": alarm_id,
@@ -108,8 +142,9 @@ class TimeManager:
                 # Istante di creazione: senza di esso una sveglia impostata per
                 # un orario appena passato rientrava nella finestra di 5 minuti
                 # e suonava immediatamente.
-                "created_at": datetime.datetime.now()
+                "created_at": creata
             })
+        salva_sveglia(alarm_id, time_str, label, creata.isoformat())
         logger.info(f"Sveglia '{label}' impostata per le {time_str}.")
         self.gui_queue.put(("message", ("OmniMind", f"⏰ **Sveglia Impostata!**\n- Evento: `{label}`\n- Orario: {time_str}")))
 
@@ -146,16 +181,17 @@ class TimeManager:
             now_dt = datetime.datetime.now()
             current_time_str = now_dt.strftime("%H:%M")
 
-            # Gestione dei Timer
+            # Gestione dei Timer (confronto su scadenza assoluta)
             expired_timers = []
             with self.lock:
                 for t in self.timers:
-                    t["seconds_left"] -= 1
-                    if t["seconds_left"] <= 0:
+                    if now_dt >= t["deadline"]:
                         expired_timers.append(t)
 
-                # Rimuove i timer scaduti
-                self.timers = [t for t in self.timers if t["seconds_left"] > 0]
+                self.timers = [t for t in self.timers if now_dt < t["deadline"]]
+
+            for t in expired_timers:
+                rimuovi_timer(t["id"])
 
             # Notifica i timer scaduti
             for t in expired_timers:
@@ -191,6 +227,9 @@ class TimeManager:
 
                 # Rimuove le sveglie attivate
                 self.alarms = [a for a in self.alarms if not a["triggered"]]
+
+            for a in triggered_alarms:
+                rimuovi_sveglia(a["id"])
 
             # Notifica le sveglie suonate
             for a in triggered_alarms:

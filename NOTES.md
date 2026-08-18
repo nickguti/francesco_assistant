@@ -8,8 +8,8 @@
 **Nome:** OmniMind (alias: Francesco)
 **Tipo:** Assistente virtuale desktop Windows — ibrido locale/cloud
 **Linguaggio:** Python
-**UI:** customtkinter (Dark Mode)
-**AI Backend:** Google Gemini 1.5/2.5 Flash (`gemini_client.py`)
+**UI:** PyQt6 (tema scuro/chiaro)
+**AI Backend:** Google Gemini 2.5 Flash (`gemini_client.py`)
 **Database:** SQLite (`omnimind_data.db`)
 **Entry point:** `main.pyw`
 
@@ -38,13 +38,13 @@ src/
 
 | Componente       | Tecnologia                          |
 |-----------------|-------------------------------------|
-| GUI             | customtkinter                       |
+| GUI             | PyQt6                               |
 | Wake-word       | Vosk (offline) + sounddevice        |
 | STT             | SpeechRecognition (Google Speech IT)|
-| TTS             | edge-tts (Microsoft Neural Voices)  |
-| AI              | Google Gemini 1.5/2.5 Flash SDK     |
+| TTS             | edge-tts / ElevenLabs / OpenAI      |
+| AI              | Google Gemini 2.5 Flash SDK         |
 | Database        | SQLite3                             |
-| System Tray     | pystray (o equivalente)             |
+| System Tray     | QSystemTrayIcon (PyQt6)             |
 | Automazione OS  | subprocess, PowerShell, WMI         |
 | Spotify         | Spotify Web API                     |
 | GPU Monitoring  | nvidia-smi                          |
@@ -137,6 +137,9 @@ RITORNO IDLE
 - [ ] Da verificare: compatibilità Vosk model con lingue miste IT/EN
 - [x] Da implementare: sistema di aggiornamento config a caldo senza restart
 - [ ] Da testare: interruzione TTS asincrona su Windows 11
+- [x] Audit completo del codice e correzione dei difetti (18/08/2026)
+- [x] Suite di test sul routing dei comandi (`tests/`)
+- [ ] Da valutare: spezzare `gui.py` (1700 righe) e `commands.py` in sotto-moduli
 
 ---
 

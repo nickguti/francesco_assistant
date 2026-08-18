@@ -26,7 +26,7 @@ def init_db():
         try:
             conn = get_connection()
             cursor = conn.cursor()
-            
+
             # Tabella cronologia chat
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS chat_history (
@@ -36,16 +36,23 @@ def init_db():
                     message TEXT NOT NULL
                 )
             """)
-            
-            # Tabella tracker personale
+
+            # Timer e sveglie: vivevano solo in memoria, quindi chiudere
+            # l'applicazione cancellava silenziosamente tutto quanto impostato.
             cursor.execute("""
-                CREATE TABLE IF NOT EXISTS personal_tracker (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    nome_elemento TEXT NOT NULL,
-                    categoria_set TEXT NOT NULL,
-                    lingua TEXT NOT NULL,
-                    condizione TEXT NOT NULL,
-                    completato INTEGER DEFAULT 0
+                CREATE TABLE IF NOT EXISTS timers (
+                    id TEXT PRIMARY KEY,
+                    label TEXT NOT NULL,
+                    deadline TEXT NOT NULL,
+                    total INTEGER NOT NULL
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS alarms (
+                    id TEXT PRIMARY KEY,
+                    time_str TEXT NOT NULL,
+                    label TEXT NOT NULL,
+                    created_at TEXT NOT NULL
                 )
             """)
             conn.commit()
@@ -72,6 +79,97 @@ def save_chat_message(sender: str, message: str):
         finally:
             if conn:
                 conn.close()
+
+MAX_MESSAGGI_STORICI = 5000
+
+
+def purge_chat_history(mantieni: int = MAX_MESSAGGI_STORICI) -> int:
+    """
+    Elimina i messaggi piu' vecchi oltre la soglia.
+    Senza retention il database cresceva indefinitamente e nessuna funzione
+    permetteva all'utente di ridurlo.
+    """
+    with db_lock:
+        conn = None
+        try:
+            conn = get_connection()
+            cur = conn.cursor()
+            cur.execute(
+                "DELETE FROM chat_history WHERE id <= "
+                "(SELECT MAX(id) FROM chat_history) - ?", (mantieni,))
+            rimossi = cur.rowcount or 0
+            conn.commit()
+            return max(0, rimossi)
+        except Exception as e:
+            logger.error(f"Errore nella pulizia della cronologia: {e}")
+            return 0
+        finally:
+            if conn:
+                conn.close()
+
+
+def clear_chat_history() -> bool:
+    """Svuota completamente la cronologia della chat."""
+    with db_lock:
+        conn = None
+        try:
+            conn = get_connection()
+            conn.execute("DELETE FROM chat_history")
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Errore nello svuotare la cronologia: {e}")
+            return False
+        finally:
+            if conn:
+                conn.close()
+
+
+def _esegui(sql: str, params: tuple = (), fetch: bool = False):
+    """Helper interno per le tabelle di timer e sveglie."""
+    with db_lock:
+        conn = None
+        try:
+            conn = get_connection()
+            cur = conn.cursor()
+            cur.execute(sql, params)
+            if fetch:
+                return cur.fetchall()
+            conn.commit()
+            return None
+        except Exception as e:
+            logger.error(f"Errore SQL ({sql.split()[0]}): {e}")
+            return [] if fetch else None
+        finally:
+            if conn:
+                conn.close()
+
+
+def salva_timer(timer_id: str, label: str, deadline_iso: str, total: int):
+    _esegui("INSERT OR REPLACE INTO timers (id, label, deadline, total) VALUES (?, ?, ?, ?)",
+            (timer_id, label, deadline_iso, total))
+
+
+def rimuovi_timer(timer_id: str):
+    _esegui("DELETE FROM timers WHERE id = ?", (timer_id,))
+
+
+def leggi_timers() -> list:
+    return _esegui("SELECT id, label, deadline, total FROM timers", fetch=True) or []
+
+
+def salva_sveglia(alarm_id: str, time_str: str, label: str, created_iso: str):
+    _esegui("INSERT OR REPLACE INTO alarms (id, time_str, label, created_at) VALUES (?, ?, ?, ?)",
+            (alarm_id, time_str, label, created_iso))
+
+
+def rimuovi_sveglia(alarm_id: str):
+    _esegui("DELETE FROM alarms WHERE id = ?", (alarm_id,))
+
+
+def leggi_sveglie() -> list:
+    return _esegui("SELECT id, time_str, label, created_at FROM alarms", fetch=True) or []
+
 
 def get_last_chat_messages(limit: int = 50) -> list:
     """Ritorna gli ultimi `limit` messaggi memorizzati, in ordine cronologico."""

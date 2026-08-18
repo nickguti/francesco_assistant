@@ -27,18 +27,47 @@ from src.database import init_db, save_chat_message, get_last_chat_messages
 from src import safety
 
 # Configurazione del Logger principale
+LIVELLI_LOG = {"Debug": logging.DEBUG, "Info": logging.INFO, "Error": logging.ERROR}
+
+
+def _livello_configurato() -> int:
+    """Livello di log scelto dall'utente. La chiave era salvata ma mai applicata."""
+    try:
+        from src.config import get_setting
+        return LIVELLI_LOG.get(get_setting("log_level", "Info"), logging.INFO)
+    except Exception:
+        return logging.INFO
+
+
 root_logger = logging.getLogger()
-root_logger.setLevel(logging.INFO)
+root_logger.setLevel(_livello_configurato())
 
 # Rimuovi eventuali handler di default per evitare doppie stampe
 for h in list(root_logger.handlers):
     root_logger.removeHandler(h)
 
+_formato = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
 # Handler per la console
 console_handler = logging.StreamHandler(sys.stdout)
-console_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-console_handler.setFormatter(console_formatter)
+console_handler.setFormatter(_formato)
 root_logger.addHandler(console_handler)
+
+# Handler su file con rotazione: finora i log vivevano solo in memoria nella
+# schermata Log e sparivano alla chiusura, rendendo non diagnosticabile
+# qualunque errore avvenuto in una sessione precedente.
+try:
+    from logging.handlers import RotatingFileHandler
+    from src.config import BASE_DIR
+
+    _log_dir = BASE_DIR / "logs"
+    _log_dir.mkdir(parents=True, exist_ok=True)
+    file_handler = RotatingFileHandler(
+        _log_dir / "omnimind.log", maxBytes=1_000_000, backupCount=3, encoding="utf-8")
+    file_handler.setFormatter(_formato)
+    root_logger.addHandler(file_handler)
+except Exception as _e:
+    print(f"Impossibile inizializzare il log su file: {_e}")
 
 logger = logging.getLogger("OmniMindMain")
 
@@ -136,7 +165,8 @@ class OmniMindAssistant:
             on_exit_callback=self.exit_app,
             on_settings_saved_callback=self.reload_settings,
             on_stop_tts_callback=self.tts_manager.stop,
-            on_state_change_callback=lambda state: self.tray.set_icon_by_state(state) if hasattr(self, 'tray') else None
+            on_state_change_callback=lambda state: self.tray.set_icon_by_state(state) if hasattr(self, 'tray') else None,
+            on_new_chat_callback=self.gemini_client.reset_chat
         )
 
         # Gestione dell'avvio minimizzato
@@ -320,24 +350,33 @@ class OmniMindAssistant:
         self.gui_queue.put(("status", "muted" if self.is_muted else "listening"))
 
     def start_hotkey_listener(self):
-        """Avvia un thread in background per ascoltare la hotkey globale (Ctrl+Shift+A) per l'analisi appunti."""
+        """
+        Registra la hotkey globale per l'analisi degli appunti.
+
+        Disattivata per default: la combinazione era fissa (Ctrl+Shift+A, comune
+        in molti editor) e inviava gli appunti a un servizio esterno senza
+        anteprima. Ora va abilitata esplicitamente dalle impostazioni.
+        """
+        combinazione = self.config_data.get("hotkey_appunti", "").strip()
+        if not combinazione:
+            logger.info("Hotkey globale per gli appunti non configurata: listener non avviato.")
+            return
+
         def run_listener():
             try:
                 from pynput import keyboard
 
                 def on_activate():
-                    logger.info("Hotkey globale (Ctrl+Shift+A) rilevata! Avvio analisi appunti...")
+                    logger.info(f"Hotkey globale ({combinazione}) rilevata! Avvio analisi appunti...")
                     self.gui_queue.put(("message", ("Utente", "[Analisi Appunti via Hotkey]")))
                     save_chat_message("Utente", "[Analisi Appunti via Hotkey]")
                     self.process_query("spiegami gli appunti")
 
-                hotkeys = {
-                    '<ctrl>+<shift>+a': on_activate
-                }
+                hotkeys = {combinazione: on_activate}
 
                 listener = keyboard.GlobalHotKeys(hotkeys)
                 listener.start()
-                logger.info("Listener Hotkey globale (Ctrl+Shift+A) avviato con successo.")
+                logger.info(f"Listener hotkey globale ({combinazione}) avviato con successo.")
 
                 # Mantiene in vita il listener
                 while self.running:
@@ -367,6 +406,10 @@ class OmniMindAssistant:
             # Slider "Soglia Rumore Mic": esisteva in GUI ma la soglia usata
             # dal rilevatore era una costante hardcoded.
             self.wakeword_detector.update_sensitivity(config_data.get("mic_sensitivity", 400))
+
+        # 4. Livello di log
+        nuovo_livello = LIVELLI_LOG.get(config_data.get("log_level", "Info"), logging.INFO)
+        root_logger.setLevel(nuovo_livello)
 
         self.gui_queue.put(("system", "Nuove impostazioni applicate con successo."))
 
