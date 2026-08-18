@@ -156,3 +156,43 @@ def test_password_sicura_rispetta_i_requisiti():
         assert any(c.islower() for c in pwd)
         assert any(c.isupper() for c in pwd)
         assert any(c.isdigit() for c in pwd)
+
+
+# --------------------------------------------------------------------------
+# Cronologia inviata a Gemini: deve sempre iniziare con un turno utente
+# --------------------------------------------------------------------------
+class _Turno:
+    def __init__(self, role):
+        self.role = role
+
+
+class _ChatFinta:
+    def __init__(self, ruoli):
+        self.history = [_Turno(r) for r in ruoli]
+
+
+def test_storico_troncato_inizia_sempre_con_user():
+    """
+    start_chat() rifiuta una cronologia che inizia con una risposta del modello.
+    Tagliando a lunghezza fissa si puo' finire proprio in quella condizione.
+    """
+    from src.gemini_client import GeminiClient, MAX_TURNI_STORICO
+
+    client = GeminiClient.__new__(GeminiClient)   # niente rete, niente API key
+
+    # Piu' scambi del limite, con un taglio che cadrebbe su un turno "model"
+    ruoli = ["user", "model"] * (MAX_TURNI_STORICO + 5)
+    client.chat = _ChatFinta(ruoli[1:])           # sfasato di uno di proposito
+
+    finestra = client._storico_troncato()
+    assert finestra, "la finestra non deve essere vuota"
+    assert finestra[0].role == "user"
+    assert len(finestra) <= MAX_TURNI_STORICO * 2
+
+
+def test_storico_troncato_senza_chat():
+    from src.gemini_client import GeminiClient
+
+    client = GeminiClient.__new__(GeminiClient)
+    client.chat = None
+    assert client._storico_troncato() == []
