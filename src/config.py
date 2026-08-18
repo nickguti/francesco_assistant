@@ -70,6 +70,8 @@ DEFAULT_CONFIG = {
     "night_sleep_timer": "Mai",
     "trigger_time_night": "",
     "trigger_app_gaming": "",
+    "hotkey_appunti": "",
+    "vision_tutti_schermi": False,
     "disabled_plugins": [],
     "plugin_settings": {}
 }

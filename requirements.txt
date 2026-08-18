@@ -27,3 +27,6 @@ markdown>=3.0.0
 pynput>=1.7.6
 pywin32>=306
 plyer>=2.1.0
+
+# Sviluppo
+pytest>=8.0.0

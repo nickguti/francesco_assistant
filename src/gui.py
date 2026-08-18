@@ -21,6 +21,21 @@ from src.config import load_config, save_config
 
 logger = logging.getLogger("OmniMindGUI")
 
+# Palette attiva, aggiornata da AssistantGUI._apply_theme.
+# I colori erano ripetuti come letterali in tutto il file: il tema Chiaro
+# calcolava correttamente lo sfondo bianco ma la chat continuava a scrivere
+# testo #f8fafc, cioe' bianco su bianco.
+TEMA = {
+    "bg_main": "#0f172a",
+    "card_bg": "#1e293b",
+    "card_border": "#1e293b",
+    "text_main": "#f8fafc",
+    "text_dim": "#94a3b8",
+    "accent": "#38bdf8",
+    "utente": "#60a5fa",
+    "assistente": "#10b981",
+}
+
 def interpolate_color(color1_hex, color2_hex, factor):
     c1 = color1_hex.lstrip('#')
     c2 = color2_hex.lstrip('#')
@@ -73,7 +88,7 @@ class DonutProgressWidget(QWidget):
         draw_rect = QRectF(x, y, size, size)
 
         # Sfondo del cerchio
-        pen_bg = QPen(QColor("#1e293b"), 12)
+        pen_bg = QPen(QColor(TEMA["card_border"]), 12)
         pen_bg.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(pen_bg)
         painter.drawArc(draw_rect, 0, 360 * 16)
@@ -86,7 +101,7 @@ class DonutProgressWidget(QWidget):
         painter.drawArc(draw_rect, 90 * 16, span_angle)
 
         # Testo percentuale al centro
-        painter.setPen(QColor("white"))
+        painter.setPen(QColor(TEMA["text_main"]))
         font = painter.font()
         font.setPointSize(16)
         font.setBold(True)
@@ -103,7 +118,7 @@ class DonutProgressWidget(QWidget):
         painter.end()
 
 class AssistantGUI(QMainWindow):
-    def __init__(self, gui_queue, on_send_text_callback, on_toggle_mute_callback, on_exit_callback, on_settings_saved_callback=None, on_stop_tts_callback=None, on_state_change_callback=None):
+    def __init__(self, gui_queue, on_send_text_callback, on_toggle_mute_callback, on_exit_callback, on_settings_saved_callback=None, on_stop_tts_callback=None, on_state_change_callback=None, on_new_chat_callback=None):
         super().__init__()
         self.gui_queue = gui_queue
         self.on_send_text = on_send_text_callback
@@ -112,6 +127,7 @@ class AssistantGUI(QMainWindow):
         self.on_settings_saved = on_settings_saved_callback
         self.on_stop_tts = on_stop_tts_callback
         self.on_state_change = on_state_change_callback
+        self.on_new_chat = on_new_chat_callback
 
         self.config_data = load_config()
         self.is_muted = False
@@ -185,6 +201,19 @@ class AssistantGUI(QMainWindow):
             card_bg = "#1e293b"
             input_border = "#334155"
             scroll_handle = "#475569"
+
+        # Rende la palette disponibile a chi disegna fuori dal foglio di stile
+        # (chat in HTML, cronologia, log, donut della dashboard).
+        TEMA.update({
+            "bg_main": bg_main,
+            "card_bg": card_bg,
+            "card_border": card_border,
+            "text_main": text_main,
+            "text_dim": text_dim,
+            "accent": accent,
+            "utente": "#2563eb" if theme_mode == "Chiaro" else "#60a5fa",
+            "assistente": "#047857" if theme_mode == "Chiaro" else "#10b981",
+        })
 
         self.setStyleSheet(f"""
             QMainWindow, QWidget#content_container, QScrollArea, QScrollArea > QWidget > QWidget {{
@@ -465,9 +494,20 @@ class AssistantGUI(QMainWindow):
         self.stop_tts_btn = QPushButton("⏹️")
         self.stop_tts_btn.setObjectName("send_btn")
         self.stop_tts_btn.setFixedSize(45, 45)
+        self.stop_tts_btn.setToolTip("Interrompi la voce")
         self.stop_tts_btn.clicked.connect(self._handle_stop_tts)
 
+        # Azzera il contesto inviato al modello: reset_chat() esisteva ma non
+        # era richiamata da nessuna parte, quindi la cronologia cresceva per
+        # tutta la sessione senza alcun modo di ripartire da zero.
+        self.new_chat_btn = QPushButton("🧹")
+        self.new_chat_btn.setObjectName("send_btn")
+        self.new_chat_btn.setFixedSize(45, 45)
+        self.new_chat_btn.setToolTip("Nuova conversazione (azzera il contesto)")
+        self.new_chat_btn.clicked.connect(self._handle_new_chat)
+
         input_layout.addWidget(self.entry_box, 1)
+        input_layout.addWidget(self.new_chat_btn)
         input_layout.addWidget(self.stop_tts_btn)
         input_layout.addWidget(self.send_btn)
         layout.addLayout(input_layout)
@@ -475,6 +515,12 @@ class AssistantGUI(QMainWindow):
     def _handle_stop_tts(self):
         if self.on_stop_tts:
             self.on_stop_tts()
+
+    def _handle_new_chat(self):
+        if self.on_new_chat:
+            self.on_new_chat()
+        self.chat_log.clear()
+        self.add_system_message("Nuova conversazione: il contesto precedente e' stato azzerato.")
 
     def _build_settings_screen(self):
         self.settings_screen = QScrollArea()
@@ -518,10 +564,15 @@ class AssistantGUI(QMainWindow):
         self.wakeword_entry.setMaximumWidth(250)
         hw_layout.addRow("Wake-Word:", self.wakeword_entry)
 
+        self.tts_engine_combo = QComboBox()
+        self.tts_engine_combo.addItems(["Microsoft Edge (Gratis)", "ElevenLabs", "OpenAI"])
+        self.tts_engine_combo.setMaximumWidth(250)
+        hw_layout.addRow("Motore vocale:", self.tts_engine_combo)
+
         self.voice_combo = QComboBox()
         self.voice_combo.addItems(["it-IT-GiuseppeNeural", "it-IT-ElsaNeural", "it-IT-DiegoNeural"])
         self.voice_combo.setMaximumWidth(250)
-        hw_layout.addRow("Sintesi Vocale:", self.voice_combo)
+        hw_layout.addRow("Voce (Edge):", self.voice_combo)
 
         self.mic_slider = QSlider(Qt.Orientation.Horizontal)
         self.mic_slider.setRange(100, 2000)
@@ -585,6 +636,16 @@ class AssistantGUI(QMainWindow):
         self.eleven_voice_entry = QLineEdit()
         self.eleven_voice_entry.setMaximumWidth(250)
         api_layout.addRow("ElevenLabs Voice ID:", self.eleven_voice_entry)
+
+        self.openai_key_entry = QLineEdit()
+        self.openai_key_entry.setEchoMode(QLineEdit.EchoMode.Password)
+        self.openai_key_entry.setMaximumWidth(250)
+        api_layout.addRow("OpenAI API Key:", self.openai_key_entry)
+
+        self.openai_voice_combo = QComboBox()
+        self.openai_voice_combo.addItems(["alloy", "echo", "fable", "onyx", "nova", "shimmer"])
+        self.openai_voice_combo.setMaximumWidth(250)
+        api_layout.addRow("Voce OpenAI:", self.openai_voice_combo)
         api_layout_v.addLayout(api_layout)
         grid.addWidget(api_card, 2, 0, 1, 2)
 
@@ -599,6 +660,11 @@ class AssistantGUI(QMainWindow):
         self.log_combo.setMaximumWidth(250)
         sec_layout.addRow("Livello di Log:", self.log_combo)
         sec_layout_v.addLayout(sec_layout)
+
+        self.hotkey_entry = QLineEdit()
+        self.hotkey_entry.setMaximumWidth(250)
+        self.hotkey_entry.setPlaceholderText("vuoto = disattivata")
+        sec_layout.addRow("Hotkey analisi appunti:", self.hotkey_entry)
 
         self.clear_cache_btn = QPushButton("🗑️ Svuota Cache")
         self.clear_cache_btn.setStyleSheet("background-color: #ef4444; color: white; border: none; font-weight: bold; border-radius: 5px;")
@@ -981,6 +1047,14 @@ class AssistantGUI(QMainWindow):
             self.gpu_info_label.setText("GPU: Non disponibile")
 
     def _build_instructions_screen(self):
+        """
+        Guida comandi generata dai plugin attivi.
+
+        Prima era una lista scritta a mano di nove voci che non corrispondeva
+        piu' ai comandi realmente riconosciuti: elencava funzioni inesistenti e
+        ne ometteva molte. Ora ogni plugin dichiara i propri esempi, quindi la
+        guida resta vera per costruzione e mostra solo i plugin abilitati.
+        """
         self.instructions_screen = QScrollArea()
         self.instructions_screen.setWidgetResizable(True)
         self.instructions_screen.setFrameShape(QFrame.Shape.NoFrame)
@@ -990,33 +1064,48 @@ class AssistantGUI(QMainWindow):
         title = QLabel("Manuale dei Comandi")
         title.setObjectName("section_title")
         layout.addWidget(title)
-        layout.addWidget(QLabel("Interagisci vocalmente dicendo 'OmniMind [comando]' o scrivendo nella chat:"))
 
-        commands_list = [
-            {"title": "💬 Chiacchierata Generica", "synonyms": "Ciao OmniMind / Cerca su internet...", "desc": "Conversazione libera basata sul Cloud. Usa Gemini per rispondere."},
-            {"title": "🎭 Cambio Profilo", "synonyms": "cambia profilo in [nome]", "desc": "Passa dal profilo Nessuno, a Focus o Gaming alterando il comportamento."},
-            {"title": "🔇 Controllo Audio", "synonyms": "muto / smuta / pausa / riprendi", "desc": "Gestisce la riproduzione multimediale in background e le allerte sonore."},
-            {"title": "⏰ Sveglie e Timer", "synonyms": "imposta un timer di X minuti", "desc": "Avvia un timer con allarme acustico in background."},
-            {"title": "📋 Analizzatore Appunti", "synonyms": "spiegami gli appunti", "desc": "Legge il testo copiato nel tuo clipboard di Windows e lo analizza."},
-            {"title": "📄 Lettore Documenti", "synonyms": "riassumi il file / leggi il documento", "desc": "Estrae il testo da file locali (.txt, .pdf) e ne genera un riassunto."},
-            {"title": "👁️ [NUOVO] Visione Schermo 2.0", "synonyms": "guarda qui / analizza lo schermo", "desc": "Scatta un flash fotografico multi-monitor e analizza cosa stai guardando."},
-            {"title": "🤖 [NUOVO] Automazioni RPA", "synonyms": "esegui automazione: [azione]", "desc": "L'IA prende il controllo di tastiera e finestre per eseguire task per te."},
-            {"title": "📊 [NUOVO] Monitor PC & Killer", "synonyms": "come sta il PC? / chiudi [app]", "desc": "Legge le temperature GPU, CPU e RAM in tempo reale o termina app forzatamente."}
-        ]
+        ww = self.config_data.get("wake_word", "omnimind")
+        layout.addWidget(QLabel(
+            f"Interagisci vocalmente dicendo \"{ww} [comando]\" oppure scrivendo nella chat."))
 
-        for cmd in commands_list:
-            c = QFrame()
-            c.setObjectName("card")
-            cl = QVBoxLayout(c)
-            tl = QLabel(cmd["title"])
-            tl.setStyleSheet("color: #38bdf8; font-weight: bold; font-size: 14px;")
+        try:
+            from src.commands import _plugin_manager
+            attivi = sorted(_plugin_manager.plugins, key=lambda p: p.priority)
+        except Exception as e:
+            logger.error(f"Impossibile leggere i plugin per la guida comandi: {e}")
+            attivi = []
+
+        for plugin in attivi:
+            esempi = getattr(plugin, "examples", []) or []
+            if not esempi:
+                continue
+
+            card = QFrame()
+            card.setObjectName("card")
+            cl = QVBoxLayout(card)
+
+            tl = QLabel(plugin.name)
+            tl.setStyleSheet(f"color: {TEMA['accent']}; font-weight: bold; font-size: 15px;")
             cl.addWidget(tl)
-            cl.addWidget(QLabel(f"Es: \"{cmd['synonyms']}\""))
-            dl = QLabel(cmd["desc"])
+
+            dl = QLabel(plugin.description)
             dl.setWordWrap(True)
-            dl.setStyleSheet("color: #94a3b8;")
+            dl.setStyleSheet(f"color: {TEMA['text_dim']};")
             cl.addWidget(dl)
-            layout.addWidget(c)
+
+            for frase, descrizione in esempi:
+                riga = QLabel(f"<b>\u2022 \"{frase}\"</b> — {descrizione}")
+                riga.setWordWrap(True)
+                riga.setStyleSheet(f"color: {TEMA['text_main']}; margin-left: 8px;")
+                cl.addWidget(riga)
+
+            layout.addWidget(card)
+
+        if not attivi:
+            avviso = QLabel("Nessun plugin attivo: abilitane almeno uno da 'Gestione Plugin'.")
+            avviso.setStyleSheet(f"color: {TEMA['text_dim']};")
+            layout.addWidget(avviso)
 
         layout.addStretch()
         self.instructions_screen.setWidget(content)
@@ -1197,6 +1286,9 @@ class AssistantGUI(QMainWindow):
         self.key_entry.setText(self.config_data.get("gemini_api_key", ""))
         self.wakeword_entry.setText(self.config_data.get("wake_word", "omnimind"))
         self.voice_combo.setCurrentText(self.config_data.get("tts_voice", "it-IT-GiuseppeNeural"))
+        self.tts_engine_combo.setCurrentText(self.config_data.get("tts_engine", "Microsoft Edge (Gratis)"))
+        self.openai_key_entry.setText(self.config_data.get("openai_api_key", ""))
+        self.openai_voice_combo.setCurrentText(self.config_data.get("openai_voice", "onyx"))
         self.model_combo.setCurrentText(self.config_data.get("gemini_model", "gemini-2.5-flash"))
         self.temp_slider.setValue(int(self.config_data.get("temperature", 0.7) * 10))
         self.mic_slider.setValue(int(self.config_data.get("mic_sensitivity", 400)))
@@ -1212,6 +1304,7 @@ class AssistantGUI(QMainWindow):
         self.eleven_voice_entry.setText(self.config_data.get("elevenlabs_voice_id", ""))
         self.safe_mode_cb.setChecked(self.config_data.get("safe_mode_confirm", False))
         self.log_combo.setCurrentText(self.config_data.get("log_level", "Info"))
+        self.hotkey_entry.setText(self.config_data.get("hotkey_appunti", ""))
 
         # --- Profili / Modalità ---
         self.focus_mute_tts_check.setChecked(self.config_data.get("focus_mute_tts", True))
@@ -1258,9 +1351,16 @@ class AssistantGUI(QMainWindow):
         self.gaming_vol_pct_label.setText(f"{value}%")
 
     def save_settings(self):
+        # Merge sullo stato su disco: riscrivere lo snapshot caricato all'avvio
+        # cancellava le chiavi modificate nel frattempo da altre parti del
+        # programma (es. il profilo attivato da un trigger automatico).
+        self.config_data = load_config()
         self.config_data["gemini_api_key"] = self.key_entry.text().strip()
         self.config_data["wake_word"] = self.wakeword_entry.text().strip().lower()
         self.config_data["tts_voice"] = self.voice_combo.currentText()
+        self.config_data["tts_engine"] = self.tts_engine_combo.currentText()
+        self.config_data["openai_api_key"] = self.openai_key_entry.text().strip()
+        self.config_data["openai_voice"] = self.openai_voice_combo.currentText()
         self.config_data["gemini_model"] = self.model_combo.currentText()
         self.config_data["temperature"] = self.temp_slider.value() / 10.0
         self.config_data["mic_sensitivity"] = self.mic_slider.value()
@@ -1276,6 +1376,7 @@ class AssistantGUI(QMainWindow):
         self.config_data["elevenlabs_voice_id"] = self.eleven_voice_entry.text().strip()
         self.config_data["safe_mode_confirm"] = self.safe_mode_cb.isChecked()
         self.config_data["log_level"] = self.log_combo.currentText()
+        self.config_data["hotkey_appunti"] = self.hotkey_entry.text().strip()
 
         save_config(self.config_data)
         if hasattr(self, 'on_settings_saved') and self.on_settings_saved:
@@ -1283,9 +1384,13 @@ class AssistantGUI(QMainWindow):
 
         self._toggle_windows_startup(self.windows_start_cb.isChecked())
         self._apply_theme()  # Applica istantaneamente il tema
+        # I messaggi gia' in chat hanno i colori del tema precedente scritti
+        # inline nell'HTML: vanno ridisegnati, altrimenti restano illeggibili.
+        self._ridisegna_chat()
         self.show_notification("Impostazioni salvate con successo.")
 
     def save_profile_settings(self):
+        self.config_data = load_config()
         self.config_data["focus_mute_tts"] = self.focus_mute_tts_check.isChecked()
         self.config_data["focus_close_apps"] = self.focus_close_apps_check.isChecked()
         self.config_data["focus_block_notifications"] = self.focus_block_notifications_check.isChecked()
@@ -1459,7 +1564,9 @@ class AssistantGUI(QMainWindow):
         import html
         safe_text = html.escape(text)
         if sender == "Utente":
-            self.chat_log.append(f"<b style='color:#60a5fa;'>Tu:</b> <span style='color:#f8fafc;'>{safe_text}</span><br>")
+            self.chat_log.append(
+                f"<b style='color:{TEMA['utente']};'>Tu:</b> "
+                f"<span style='color:{TEMA['text_main']};'>{safe_text}</span><br>")
         elif sender == "OmniMind":
             # Parsing del Markdown con estensioni per codice e tabelle
             md_html = markdown.markdown(text, extensions=['fenced_code', 'tables', 'nl2br'])
@@ -1467,13 +1574,13 @@ class AssistantGUI(QMainWindow):
             # CSS basilare per stilizzare codice, citazioni e tabelle in dark mode
             styled_html = f"""
             <style>
-                pre {{ background-color: #1e293b; padding: 10px; border-radius: 5px; margin-top: 10px; margin-bottom: 10px; }}
-                code {{ background-color: #1e293b; padding: 2px 4px; border-radius: 3px; font-family: monospace; color: #38bdf8; }}
+                pre {{ background-color: {TEMA['card_bg']}; padding: 10px; border-radius: 5px; margin-top: 10px; margin-bottom: 10px; }}
+                code {{ background-color: {TEMA['card_bg']}; padding: 2px 4px; border-radius: 3px; font-family: monospace; color: {TEMA['accent']}; }}
                 table {{ border-collapse: collapse; margin: 10px 0; width: 100%; }}
                 th, td {{ border: 1px solid #475569; padding: 5px; text-align: left; }}
             </style>
-            <div style='color:#f8fafc; font-family: Inter, sans-serif; margin-bottom:15px;'>
-                <b style='color:#10b981;'>OmniMind:</b><br>
+            <div style='color:{TEMA['text_main']}; font-family: Inter, sans-serif; margin-bottom:15px;'>
+                <b style='color:{TEMA['assistente']};'>OmniMind:</b><br>
                 {md_html}
             </div>
             """
@@ -1486,6 +1593,16 @@ class AssistantGUI(QMainWindow):
             # Per altri mittenti o messaggi di sistema classici
             self._typewriter_queue.append((sender, text))
             self._process_typewriter_queue()
+
+    def _ridisegna_chat(self):
+        """Ricostruisce la chat dal database con i colori del tema corrente."""
+        try:
+            from src.database import get_last_chat_messages
+            self.chat_log.clear()
+            for sender, msg in get_last_chat_messages(50):
+                self.add_chat_log_entry(sender, msg)
+        except Exception as e:
+            logger.warning(f"Impossibile ridisegnare la chat dopo il cambio tema: {e}")
 
     def add_system_message(self, text):
         self._typewriter_queue.append(("[Sistema]", text))
@@ -1530,7 +1647,7 @@ class AssistantGUI(QMainWindow):
 
     def add_log_entry(self, level, text):
         colors = {"INFO": "#10b981", "WARNING": "#f59e0b", "ERROR": "#ef4444", "CRITICAL": "#ef4444", "DEBUG": "#64748b"}
-        color = colors.get(level, "#f8fafc")
+        color = colors.get(level, TEMA["text_main"])
         self.logs_textbox.append(f"<span style='color:{color};'>[{level}] {text}</span>")
 
     def load_history_items_gui(self):
@@ -1543,9 +1660,13 @@ class AssistantGUI(QMainWindow):
             # escape un messaggio contenente <div> corrompeva la cronologia.
             msg = html.escape(msg)
             if sender == "Utente":
-                self.history_textbox.append(f"<b style='color:#60a5fa;'>Tu:</b> <span style='color:#f8fafc;'>{msg}</span><br>")
+                self.history_textbox.append(
+                    f"<b style='color:{TEMA['utente']};'>Tu:</b> "
+                    f"<span style='color:{TEMA['text_main']};'>{msg}</span><br>")
             elif sender == "OmniMind":
-                self.history_textbox.append(f"<b style='color:#10b981;'>OmniMind:</b> <span style='color:#f8fafc;'>{msg}</span><br>")
+                self.history_textbox.append(
+                    f"<b style='color:{TEMA['assistente']};'>OmniMind:</b> "
+                    f"<span style='color:{TEMA['text_main']};'>{msg}</span><br>")
             else:
                 self.history_textbox.append(f"<i style='color:#64748b;'>[{sender}] {msg}</i><br>")
 

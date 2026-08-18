@@ -29,6 +29,9 @@ todo_list.json
 note_assistente.txt
 .cache
 
+# Log applicativi
+logs/
+
 # File audio temporanei
 temp/
 *.mp3

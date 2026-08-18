@@ -188,11 +188,24 @@ def apri_app_locale(app_name: str) -> bool:
 
     try:
         clean_name = app_clean.replace(" ", "")
-        subprocess.Popen([clean_name])
-        logger.info(f"Avviato con successo l'eseguibile sconosciuto: {clean_name}")
+        # Niente separatori di percorso: il nome arriva da una frase dell'utente.
+        if any(ch in clean_name for ch in ("\\", "/", ":")):
+            logger.warning(f"Nome eseguibile rifiutato (contiene un percorso): {clean_name!r}")
+            return False
+
+        # shutil.which invece di Popen([nome]) diretto: CreateProcess risolve
+        # prima nella directory di lavoro, che per Avvia_OmniMind.bat e' la root
+        # del progetto, dove organize_downloads/extract_latest_download possono
+        # aver depositato file.
+        eseguibile = shutil.which(clean_name)
+        if not eseguibile:
+            logger.debug(f"Eseguibile '{app_clean}' non trovato nel PATH di Windows.")
+            return False
+
+        subprocess.Popen([eseguibile], shell=False,
+                         cwd=os.environ.get("SystemRoot", "C:\\Windows"))
+        logger.info(f"Avviato l'eseguibile risolto dal PATH: {eseguibile}")
         return True
-    except FileNotFoundError:
-        logger.debug(f"Eseguibile '{app_clean}' non trovato nel PATH di Windows.")
     except Exception as e:
         logger.debug(f"Impossibile avviare '{app_clean}': {e}")
 
@@ -480,7 +493,14 @@ def attiva_profilo(nome_profilo: str) -> tuple[bool, str, str]:
                 except Exception:
                     pass
 
-        chat_msg = "🎯 **Profilo Focus / Studio Attivato**\n- Risposte vocali (TTS) disattivate\n- Notifiche silenziate"
+        chat_msg = "🎯 **Profilo Focus / Studio Attivato**\n- Risposte vocali (TTS) disattivate"
+        # Il messaggio dichiarava le notifiche silenziate a prescindere, mentre
+        # focus_block_notifications non veniva letto da nessuna parte.
+        if config.get("focus_block_notifications", False):
+            if imposta_notifiche_windows(False):
+                chat_msg += "\n- Notifiche desktop silenziate"
+            else:
+                chat_msg += "\n- Notifiche desktop: non sono riuscito a silenziarle"
         if closed:
             chat_msg += f"\n- App distractive chiuse: {', '.join(set(closed))}"
 
@@ -551,6 +571,23 @@ def attiva_profilo(nome_profilo: str) -> tuple[bool, str, str]:
 
     return True, f"Profilo '{nome_profilo}' non riconosciuto.", f"Non conosco il profilo {nome_profilo}."
 
+def imposta_notifiche_windows(abilitate: bool) -> bool:
+    """
+    Abilita o silenzia i toast di Windows per l'utente corrente.
+    Ritorna True se l'operazione e' riuscita.
+    """
+    try:
+        import winreg
+        chiave = r"Software\\Microsoft\\Windows\\CurrentVersion\\PushNotifications"
+        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, chiave, 0, winreg.KEY_SET_VALUE) as k:
+            winreg.SetValueEx(k, "ToastEnabled", 0, winreg.REG_DWORD, 1 if abilitate else 0)
+        logger.info(f"Notifiche desktop {'abilitate' if abilitate else 'silenziate'}.")
+        return True
+    except Exception as e:
+        logger.error(f"Impossibile modificare lo stato delle notifiche: {e}")
+        return False
+
+
 def disattiva_profili() -> tuple[bool, str, str]:
     """Disattiva i profili attivi ripristinando le impostazioni standard."""
     config = load_config()
@@ -564,6 +601,9 @@ def disattiva_profili() -> tuple[bool, str, str]:
 
     set_volume(std_vol)
     set_screen_brightness(std_bright)
+
+    # Ripristina le notifiche eventualmente silenziate dal profilo Focus
+    imposta_notifiche_windows(True)
 
     chat_msg = f"🌿 **Profilo Standard Ripristinato**\n- Volume master ripristinato al {std_vol}%\n- Luminosità ripristinata al {std_bright}%\n- Risposte di Gemini standard"
 
@@ -581,26 +621,6 @@ def disattiva_profili() -> tuple[bool, str, str]:
 
     voice_msg = "Profili disattivati. Ho ripristinato i valori standard di luminosità e volume."
     return True, chat_msg, voice_msg
-
-def kill_process_by_name(app_name: str) -> tuple[bool, str, str]:
-    """Cerca e termina forzatamente i processi associati al nome fornito."""
-    app_clean = app_name.lower().strip()
-    target = app_clean if app_clean.endswith(".exe") else app_clean + ".exe"
-
-    terminated = 0
-    for proc in psutil.process_iter(['name', 'pid']):
-        try:
-            name = proc.info['name']
-            if name and (app_clean in name.lower() or name.lower() == target):
-                proc.kill()
-                terminated += 1
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
-
-    if terminated > 0:
-        return True, f"Kill Switch: terminati {terminated} processi associati a '{app_name}'.", f"Ho terminato tutti i processi di {app_name}."
-    else:
-        return True, f"Kill Switch: nessun processo attivo corrispondente a '{app_name}' trovato.", f"Non ho trovato nessun processo attivo per {app_name}."
 
 def launch_game_lobby(game_name: str) -> tuple[bool, str, str]:
     """Avvia le lobby di gioco sfruttando i protocolli di integrazione nativi."""
