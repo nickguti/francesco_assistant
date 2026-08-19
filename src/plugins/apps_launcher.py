@@ -68,7 +68,13 @@ class AppsLauncherPlugin(OmniMindPlugin):
                 if target.startswith("http") or target.endswith(":"):
                     webbrowser.open(target)
                 else:
-                    os.system(f"start {target}")
+                    # Niente os.system: apre una shell per nulla e lascia
+                    # aperta la porta a un target con caratteri speciali.
+                    import subprocess
+                    import shutil as _shutil
+                    eseguibile = _shutil.which(target) or target
+                    subprocess.Popen([eseguibile], shell=False,
+                                     cwd=os.environ.get("SystemRoot", "C:\\Windows"))
                 return True, f"Apertura istantanea di {trigger.replace('apri ', '')}... 🚀", "Fatto."
                 
         # Browser generico
