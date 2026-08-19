@@ -1032,11 +1032,36 @@ def get_tech_news() -> tuple[bool, str, str]:
 from src.plugins.plugin_manager import PluginManager
 _plugin_manager = PluginManager()
 
+
+def rimuovi_wake_word(text: str) -> str:
+    """
+    Toglie la parola di attivazione dall'inizio del comando.
+
+    Le regex dei plugin sono ancorate a inizio frase. La wake-word puo' pero'
+    restare in testa al testo in due casi concreti: l'utente la scrive in chat
+    (la guida stessa suggerisce 'omnimind [comando]'), oppure la trascrizione
+    del comando vocale la include. Senza questa pulizia, "francesco chiudi
+    chrome" non verrebbe riconosciuto come comando.
+    """
+    try:
+        ww = (load_config().get("wake_word") or "").strip().lower()
+    except Exception:
+        return text
+
+    if not ww:
+        return text
+
+    ripulito = re.sub(rf'^\s*{re.escape(ww)}\b[\s,:;.!?-]*', '', text, count=1, flags=re.IGNORECASE)
+    # Se restasse solo la wake-word, meglio lasciare il testo originale:
+    # la frase verra' inoltrata al modello invece di diventare vuota.
+    return ripulito if ripulito.strip() else text
+
+
 def parse_local_command(text: str) -> tuple[bool, str, str]:
     """
     Analizza il testo alla ricerca di comandi locali utilizzando i Plugin.
     Ritorna (is_command, chat_response, voice_response).
     """
-    return _plugin_manager.dispatch(text)
+    return _plugin_manager.dispatch(rimuovi_wake_word(text))
 
 parse_and_execute_command = parse_local_command
