@@ -44,3 +44,14 @@ vosk-model-*/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Documenti di lavoro interni (contengono note private e output di audit)
+AUDIT_REPORT.md
+NOTES.md
+.agents/
+
+# Cache degli strumenti
+.pytest_cache/
+
+# Token OAuth di spotipy
+.cache
