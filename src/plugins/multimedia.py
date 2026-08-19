@@ -12,6 +12,15 @@ class MultimediaPlugin(OmniMindPlugin):
     """
     Gestisce i controlli multimediali rapidi e la riproduzione Spotify.
     """
+    name = "Multimedia & Spotify"
+    description = "Permette di controllare la musica su Spotify e gestire le shortcut multimediali play, pausa e scorrimento tracce."
+    priority = 20
+    examples = [
+        ("metti in pausa", "Play/pausa del media in riproduzione"),
+        ("prossima canzone", "Traccia successiva"),
+        ("riproduci Bohemian Rhapsody su spotify", "Riproduzione via API Spotify"),
+    ]
+
     def can_handle(self, text_clean: str, text: str) -> bool:
         triggers = [
             "metti in pausa", "stoppa la musica", "ferma la musica", "riprendi la musica", "metti play",

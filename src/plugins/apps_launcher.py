@@ -8,6 +8,17 @@ from src.commands import apri_app_locale
 logger = logging.getLogger("PluginAppsLauncher")
 
 class AppsLauncherPlugin(OmniMindPlugin):
+    name = "Lanciatore di App e Web"
+    description = "Avvia programmi locali istantaneamente ed esegue ricerche su Google e YouTube."
+    # Ultimo in ordine di dispatch: "apri <qualsiasi cosa>" e' un catch-all e
+    # non deve precedere i plugin con trigger specifici.
+    priority = 90
+    examples = [
+        ("apri blocco note", "Avvia un'applicazione di sistema"),
+        ("cerca ricette veloci su google", "Ricerca sul web"),
+        ("metti lo-fi su youtube", "Ricerca su YouTube"),
+    ]
+
     """
     Gestisce l'avvio rapido di applicazioni di sistema, siti web e ricerche locali di eseguibili.
     """
@@ -43,7 +54,9 @@ class AppsLauncherPlugin(OmniMindPlugin):
         if re.search(r'(?:cerca|trova|ricerca)\s+(.+?)\s+su\s+(?:google|web|internet)', text_clean) or re.search(r'(?:cerca|trova|ricerca)\s+su\s+(?:google|web|internet)\s+(.+)', text_clean):
             return True
             
-        if re.search(r'^apri\s+(.+)', text_clean):
+        # Esclude le forme piu' specifiche gestite da altri plugin
+        # (es. "apri lobby valorant" appartiene al plugin Gaming).
+        if re.search(r'^apri\s+(?!lobby\b)(.+)', text_clean):
             return True
             
         return False
@@ -55,7 +68,13 @@ class AppsLauncherPlugin(OmniMindPlugin):
                 if target.startswith("http") or target.endswith(":"):
                     webbrowser.open(target)
                 else:
-                    os.system(f"start {target}")
+                    # Niente os.system: apre una shell per nulla e lascia
+                    # aperta la porta a un target con caratteri speciali.
+                    import subprocess
+                    import shutil as _shutil
+                    eseguibile = _shutil.which(target) or target
+                    subprocess.Popen([eseguibile], shell=False,
+                                     cwd=os.environ.get("SystemRoot", "C:\\Windows"))
                 return True, f"Apertura istantanea di {trigger.replace('apri ', '')}... 🚀", "Fatto."
                 
         # Browser generico
@@ -85,7 +104,7 @@ class AppsLauncherPlugin(OmniMindPlugin):
             return True, f"Apertura ricerca Google per: '{web_query}'", f"Cerco {web_query} su Google."
 
         # App o Sito generico
-        apri_match = re.search(r'^apri\s+(.+)', text_clean)
+        apri_match = re.search(r'^apri\s+(?!lobby\b)(.+)', text_clean)
         if apri_match:
             site_or_app = apri_match.group(1).strip()
             # Tenta prima con l'app locale
