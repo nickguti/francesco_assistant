@@ -114,3 +114,43 @@ def test_ogni_plugin_dichiara_esempi(plugin_ordinati):
     """Gli esempi alimentano la guida comandi nella GUI."""
     for plugin in plugin_ordinati:
         assert getattr(plugin, "examples", None), f"{plugin.__class__.__name__} non dichiara esempi"
+
+
+# --------------------------------------------------------------------------
+# La wake-word in testa non deve impedire il riconoscimento del comando
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize("frase", [
+    "chiudi chrome",
+    "francesco chiudi chrome",
+    "Francesco, chiudi chrome",
+    "omnimind chiudi chrome",
+])
+def test_wake_word_iniziale_viene_ignorata(frase, monkeypatch):
+    """
+    Le regex dei plugin sono ancorate a inizio frase: se la parola di
+    attivazione resta in testa (l'utente la scrive, o la trascrizione la
+    include), il comando non verrebbe piu' riconosciuto.
+    """
+    import src.commands as commands
+
+    for wake in ("francesco", "omnimind"):
+        monkeypatch.setattr(commands, "load_config", lambda w=wake: {"wake_word": w})
+        ripulito = commands.rimuovi_wake_word(frase)
+        if frase.lower().startswith(wake):
+            assert not ripulito.lower().startswith(wake)
+        assert "chiudi chrome" in ripulito.lower()
+
+
+def test_wake_word_da_sola_non_svuota_il_testo(monkeypatch):
+    import src.commands as commands
+
+    monkeypatch.setattr(commands, "load_config", lambda: {"wake_word": "francesco"})
+    assert commands.rimuovi_wake_word("francesco").strip() != ""
+
+
+def test_wake_word_non_tagliata_a_meta_di_una_parola(monkeypatch):
+    """Il \b evita che 'omni' mangi l'inizio di 'omnipotente'."""
+    import src.commands as commands
+
+    monkeypatch.setattr(commands, "load_config", lambda: {"wake_word": "omni"})
+    assert commands.rimuovi_wake_word("omnipotente saluti") == "omnipotente saluti"
